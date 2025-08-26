@@ -64,32 +64,46 @@ process precluster {
 }
 
 
-// Create compund clusters by mapping the database to input sequences
-process create_compound_clusters_vsearch {
 
-    cpus = 8
+
+// Global search of all queries against reference DB
+// (nucleotide-nucleotide, both strands)
+process mmseqs_search {
 
     input:
-      path input
+      path(q_db, stageAs: "q_db/*")  // database of query sequences (`q_db/q_db`)
+      path(refs, stageAs: 'SH_db/*') // reference database (`SH_db/...`)
 
     output:
-      path "closedref.80.map.uc", emit: uc
+      path "all_hits/*", emit: hits
 
     script:
     """
+    echo -e "..MMseqs global search\\n"
 
-    vsearch \
-    --usearch_global ${input} \
-    --db "$udb_data_dir/sanger_refs_sh_full.udb" \
-    --strand plus \
-    --id 0.8 \
-    --threads ${task.cpus} \
-    --iddef 2 \
-    --gapopen 1I/0E \
-    --gapext  1I/0E \
-    --uc "closedref.80.map.uc" \
-    --maxaccepts 3 \
-    --maxrejects 0
+    ## Get the base name of the reference database
+    REFDB=\$(find SH_db -name "*.lookup" | sed 's/\\.lookup// ; s/SH_db\\///')
+
+    mkdir -p all_hits tmp_search
+
+    mmseqs search \
+      q_db/q_db \
+      SH_db/\${REFDB} \
+      all_hits/all_hits \
+      tmp_search \
+      --threads ${task.cpus} \
+      --alignment-mode 3 \
+      --min-seq-id 0.9 \
+      -s 5.7 \
+      --cov-mode 0 -c 0.7 \
+      --max-accept 50 \
+      --search-type 3 \
+      --strand 2
+
+    ## Clean up
+    rm -r tmp_search
+    """
+}
 
     """
 }
