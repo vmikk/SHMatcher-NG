@@ -112,10 +112,18 @@ process mmseqs_search {
 
 workflow {
 
+  // Input FASTA file
   ch_inp = channel.fromPath(params.input)
+  
+  // Reference database (MMseqs-formatted)
+  ch_ref = channel.fromPath("${params.ref_db_dir}/*", checkIfExists: true).collect()
 
+  // Lin-cluster query sequences
   precluster(ch_inp)
 
-
+  // Global search (queries vs SH database)
+  mmseqs_search(
+    precluster.out.qdb,
+    ch_ref)
     
 }
