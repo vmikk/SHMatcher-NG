@@ -16,7 +16,7 @@ process precluster {
 
     output:
       path "q_db/*",     emit: qdb
-      path "DB_clu.tsv", emit: membership
+      path "query_cluster_membership.tsv", emit: membership
 
     script:
     """
@@ -53,7 +53,7 @@ process precluster {
       q_db/q_db \
       q_db/q_db \
       linclusters_db \
-      DB_clu.tsv \
+      query_cluster_membership.tsv \
       --threads ${task.cpus}
 
     ## Clean up
