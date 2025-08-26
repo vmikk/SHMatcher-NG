@@ -1,37 +1,40 @@
+
+/*
 params.input = "input.fasta"
 params.preclust_id   = 0.9
 params.preclust_cov  = 0.7
 params.preclust_kmer = 80
+params.ref_db_dir    = "ref_db"
+*/
 
 
 // Fast pre-clustering of the dataset (to split into chunks prior processing)
 process precluster {
 
-    cpus = 8
-
     input:
       path input
 
     output:
-      path "DB_clu.tsv", emit: db_clu
+      path "q_db/*",     emit: qdb
+      path "DB_clu.tsv", emit: membership
 
     script:
     """
-    ## Create DB
     echo -e "..DB creation\\n"
-  
+
+    mkdir -p q_db
+
     mmseqs createdb \
       --dbtype 2 \
       --createdb-mode 0 \
       --shuffle 0 \
       ${input} \
-      mmseqs_db
+      q_db/q_db
 
-    ## Run (cascaded) clustering
     echo -e "..Lin-Clustering\\n"
 
     mmseqs linclust \
-      mmseqs_db \
+      q_db/q_db \
       linclusters_db \
       tmplc \
       --min-seq-id ${params.preclust_id} \
@@ -44,14 +47,18 @@ process precluster {
       --remove-tmp-files 1 \
       --threads ${task.cpus}
 
-    ## Generate a TSV-formatted output of clustering
     echo -e "..Generating TSV-formatted output of clustering\\n"
 
     mmseqs createtsv \
-      mmseqs_db mmseqs_db \
+      q_db/q_db \
+      q_db/q_db \
       linclusters_db \
       DB_clu.tsv \
       --threads ${task.cpus}
+
+    ## Clean up
+    rm -r tmplc
+    # rm linclusters_db*
 
     """
 }
