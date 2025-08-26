@@ -105,6 +105,28 @@ process mmseqs_search {
     """
 }
 
+// Prepare numeric keys for cluster membership and cluster representative list
+process prepare_cluster_keys {
+
+    input:
+      path(q_db, stageAs: "q_db/*")  // database of query sequences (`q_db/q_db`)
+      path membership                // query_cluster_membership.tsv
+
+    output:
+      path "cluster_members_numeric.tsv", emit: members_numeric
+      path "cluster_reps.keys",           emit: reps_keys
+
+    script:
+    """
+    echo -e "Preparing numeric keys for cluster membership\\n"
+
+    awk 'NR==FNR{a[\$2]=\$1; next} {print a[\$1]"\\t"a[\$2]}' \
+      q_db/q_db.lookup \
+      "${membership}" \
+      > cluster_members_numeric.tsv
+
+    cut -f1 cluster_members_numeric.tsv \
+      | sort -uh > cluster_reps.keys
     """
 }
 
