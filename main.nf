@@ -180,5 +180,19 @@ workflow {
   mmseqs_search(
     precluster.out.qdb,
     ch_ref)
-    
+
+  // Cluster membership preparation
+  prepare_cluster_keys(
+    precluster.out.qdb,
+    precluster.out.membership)
+
+  // Prepare FASTA files for each (compound) cluster
+  cluster_extract(
+    precluster.out.qdb,
+    ch_ref,
+    mmseqs_search.out.hits,
+    prepare_cluster_keys.out.members_numeric,
+    prepare_cluster_keys.out.reps_keys
+  )
+
 }
