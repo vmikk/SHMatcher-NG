@@ -131,6 +131,39 @@ process prepare_cluster_keys {
 }
 
 
+// Prepare FASTA files for each (compound) cluster
+process cluster_extract {
+
+    input:
+      path(q_db, stageAs: "q_db/*")     // database of query sequences (`q_db/q_db`)
+      path(refs, stageAs: 'SH_db/*')    // reference database (`SH_db/...`)
+      path(hits, stageAs: 'all_hits/*') // all hits (`all_hits/all_hits`)
+      path members_numeric
+      path reps_keys
+
+    output:
+      // path "out_with_ref/*.fasta",   optional: true, emit: clusters_with_ref
+      // path "out_query_only/*.fasta", optional: true, emit: clusters_query_only
+
+    script:
+    """
+    echo -e "Preparing FASTA files for each (compound) cluster\\n"
+
+    mkdir -p out_with_ref out_query_only
+
+    parallel --jobs ${task.cpus} \
+      -a "${reps_keys}" \
+      "cluster_extract.sh \
+        --rep            {} \
+        --q-db-dir       q_db \
+        --ref-db-dir     SH_db \
+        --all-hits-dir   all_hits \
+        --members-tsv    cluster_members_numeric.tsv \
+        --out-with-ref   out_with_ref \
+        --out-query-only out_query_only"
+    """
+}
+
 
 workflow {
 
