@@ -112,8 +112,24 @@ mmseqs convert2fasta \
 
 if [[ -s "cluster_${repKey}_t.fasta" ]]; then
   cat "cluster_${repKey}_q.fasta" "cluster_${repKey}_t.fasta" > "${OUT_WITH_REF_DIR%/}/cluster_${repKey}.fasta"
+  
+  ## Emit per-cluster ID lists
+  grep '^>' "cluster_${repKey}_q.fasta" | sed 's/^>//' \
+    | awk -F "\t" -vOFS='\t' -v cls="${repKey}" '{print cls "\t" "Query" "\t" $1 }' \
+    > "${OUT_WITH_REF_DIR%/}/cluster_${repKey}.ids.txt"
+    
+  grep '^>' "cluster_${repKey}_t.fasta" | sed 's/^>//' \
+    | awk -F "\t" -vOFS='\t' -v cls="${repKey}" '{print cls "\t" "Ref" "\t" $1 }' \
+    >> "${OUT_WITH_REF_DIR%/}/cluster_${repKey}.ids.txt"
+
 else
   cp "cluster_${repKey}_q.fasta" "${OUT_QUERY_ONLY_DIR%/}/cluster_${repKey}.fasta"
+  
+  ## Emit per-cluster ID lists (no refs)
+  grep '^>' "cluster_${repKey}_q.fasta" | sed 's/^>//' \
+    | awk -F "\t" -vOFS='\t' -v cls="${repKey}" '{print cls "\t" "Query" "\t" $1 }' \
+    > "${OUT_QUERY_ONLY_DIR%/}/cluster_${repKey}.ids.txt"
+
 fi
 
 ## Cleanup intermediates for this cluster (keep final outputs)
