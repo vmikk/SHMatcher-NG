@@ -64,6 +64,30 @@ process precluster {
 }
 
 
+// Prepare numeric keys for cluster membership and cluster representative list
+process prepare_cluster_keys {
+
+    input:
+      path(q_db, stageAs: "q_db/*")  // database of query sequences (`q_db/q_db`)
+      path membership                // query_cluster_membership.tsv
+
+    output:
+      path "cluster_members_numeric.tsv", emit: members_numeric
+      path "cluster_reps.keys",           emit: reps_keys
+
+    script:
+    """
+    echo -e "Preparing numeric keys for cluster membership\\n"
+
+    awk 'NR==FNR{a[\$2]=\$1; next} {print a[\$1]"\\t"a[\$2]}' \
+      q_db/q_db.lookup \
+      "${membership}" \
+      > cluster_members_numeric.tsv
+
+    cut -f1 cluster_members_numeric.tsv \
+      | sort -uh > cluster_reps.keys
+    """
+}
 
 
 // Global search of all queries against reference DB
@@ -105,31 +129,6 @@ process mmseqs_search {
     """
 }
 
-// Prepare numeric keys for cluster membership and cluster representative list
-process prepare_cluster_keys {
-
-    input:
-      path(q_db, stageAs: "q_db/*")  // database of query sequences (`q_db/q_db`)
-      path membership                // query_cluster_membership.tsv
-
-    output:
-      path "cluster_members_numeric.tsv", emit: members_numeric
-      path "cluster_reps.keys",           emit: reps_keys
-
-    script:
-    """
-    echo -e "Preparing numeric keys for cluster membership\\n"
-
-    awk 'NR==FNR{a[\$2]=\$1; next} {print a[\$1]"\\t"a[\$2]}' \
-      q_db/q_db.lookup \
-      "${membership}" \
-      > cluster_members_numeric.tsv
-
-    cut -f1 cluster_members_numeric.tsv \
-      | sort -uh > cluster_reps.keys
-    """
-}
-
 
 // Prepare FASTA files for each (compound) cluster
 process cluster_extract {
@@ -142,8 +141,8 @@ process cluster_extract {
       path reps_keys
 
     output:
-      // path "out_with_ref/*.fasta",   optional: true, emit: clusters_with_ref
-      // path "out_query_only/*.fasta", optional: true, emit: clusters_query_only
+      path "out_with_ref/*.fasta",   optional: true, emit: clusters_with_ref
+      path "out_query_only/*.fasta", optional: true, emit: clusters_query_only
 
     script:
     """
@@ -176,15 +175,15 @@ workflow {
   // Lin-cluster query sequences
   precluster(ch_inp)
 
-  // Global search (queries vs SH database)
-  mmseqs_search(
-    precluster.out.qdb,
-    ch_ref)
-
   // Cluster membership preparation
   prepare_cluster_keys(
     precluster.out.qdb,
     precluster.out.membership)
+
+  // Global search (queries vs SH database)
+  mmseqs_search(
+    precluster.out.qdb,
+    ch_ref)
 
   // Prepare FASTA files for each (compound) cluster
   cluster_extract(
@@ -192,7 +191,10 @@ workflow {
     ch_ref,
     mmseqs_search.out.hits,
     prepare_cluster_keys.out.members_numeric,
-    prepare_cluster_keys.out.reps_keys
-  )
+    prepare_cluster_keys.out.reps_keys)
+
+  // Compound clusters
+  ch_cls = cluster_extract.out.clusters_with_ref.flatten()
+
 
 }
