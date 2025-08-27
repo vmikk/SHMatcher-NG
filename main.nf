@@ -5,6 +5,7 @@ params.preclust_id   = 0.9
 params.preclust_cov  = 0.7
 params.preclust_kmer = 80
 params.ref_db_dir    = "ref_db"
+params.shdata        = "sh_matching/data"
 */
 
 
@@ -257,6 +258,20 @@ process cluster_aggd {
 
 
 workflow {
+
+  // SH database files
+  // ch_shd = Channel.value(params.shdata)   // `sh_matching/data` path
+
+  db_centroid2sh    = Channel.fromPath( params.shdata + '/centroid2sh_mappings.txt').first()
+  db_compound2seq   = Channel.fromPath( params.shdata + '/compound2seq_mapping.txt').first()
+  db_plutof_tax     = Channel.fromPath( params.shdata + '/plutof_taxonomy.txt').first()
+  db_compound       = Channel.fromPath( params.shdata + '/compounds_out.txt').first() 
+  db_sh2compound    = Channel.fromPath( params.shdata + '/sh2compound_mapping.txt').first()
+  db_shs            = Channel.fromPath( params.shdata + '/shs_out.txt').first()
+  db_sanger_sh      = Channel.fromPath( params.shdata + '/sanger_refs_sh.fasta').first()
+  db_sanger_sh_full = Channel.fromPath( params.shdata + '/sanger_refs_sh_full.fasta').first()
+  // TODO - check which of these are needed
+
 
   // Input FASTA file
   ch_inp = channel.fromPath(params.input)
