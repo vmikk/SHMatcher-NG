@@ -163,6 +163,63 @@ process cluster_extract {
     """
 }
 
+// Generate a distance matrix
+process calc_distmx {
+
+    input:
+      path inp   // FASTA file
+
+    output:
+      path "mx_*.txt", emit: mx
+
+    script:
+    inp_base = inp.getBaseName()
+    """
+    echo -e "Calculating distance matrix for a cluster or sequences\\n"
+
+    usearch \
+      -calc_distmx ${inp} \
+      -tabbedout mx_${inp_base}.txt \
+      -maxdist   0.03 \
+      -termdist  0.3 \
+      -gapopen   "1.0I/0.0E" \
+      -gapext    "1.0I/0.0E" \
+      -threads   ${task.cpus}
+    """
+}
+
+// Agglomerative clustering of a distance matrix
+process cluster_aggd {
+
+    input:
+      path mx              // distance matrix in tabbed pairs format
+
+    output:
+      path "calc_distm_out/*", emit: clusters
+
+    script:
+    mxbase = mx.getBaseName()
+    """
+    echo -e "Clustering distance matrix\\n"
+
+    # usearch -cluster_aggd ${mx} -clusterout clusters.txt -id 0.97 -linkage min
+
+    mkdir -p calc_distm_out
+
+    parallel -j1 \
+      "goclust \
+        --input  ${mx} \
+        --output calc_distm_out/${mxbase}_out_{} \
+        --method single \
+        --cutoff {}" \
+      ::: 0.03 0.025 0.02 0.015 0.01 0.005
+
+    """
+}
+
+
+
+
 
 workflow {
 
@@ -196,5 +253,10 @@ workflow {
   // Compound clusters
   ch_cls = cluster_extract.out.clusters_with_ref.flatten()
 
+  // Generate a distance matrix (for each cluster of sequences)
+  calc_distmx(ch_cls)
+  
+  // Agglomerative clustering (using a series of thresholds)
+  cluster_aggd(calc_distmx.out.mx)
 
 }
