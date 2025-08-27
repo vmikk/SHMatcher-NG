@@ -168,6 +168,7 @@ process cluster_extract {
     output:
       path "out_with_ref/*.fasta",   optional: true, emit: clusters_with_ref
       path "out_query_only/*.fasta", optional: true, emit: clusters_query_only
+      path "cluster_membership.txt", emit: ids
 
     script:
     """
@@ -185,6 +186,15 @@ process cluster_extract {
         --members-tsv    cluster_members_numeric.tsv \
         --out-with-ref   out_with_ref \
         --out-query-only out_query_only"
+    
+    ## Pool per-cluster member IDs  (table: ClusterID, MemberType (Query/Ref), MemberID
+    find out_with_ref   -name "*.ids.txt" | parallel -j1 "cat {}" >  cluster_membership.txt
+    find out_query_only -name "*.ids.txt" | parallel -j1 "cat {}" >> cluster_membership.txt
+
+    ## Clean up
+    find out_with_ref   -name "*.ids.txt" | parallel -j1 -X "rm {}"
+    find out_query_only -name "*.ids.txt" | parallel -j1 -X "rm {}"
+
     """
 }
 
