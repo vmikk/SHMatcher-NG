@@ -99,7 +99,8 @@ process mmseqs_search {
       path(refs, stageAs: 'SH_db/*') // reference database (`SH_db/...`)
 
     output:
-      path "all_hits/*", emit: hits
+      path "all_hits/*",    emit: hits
+      path "best_hits.tsv", emit: best_hits
 
     script:
     """
@@ -110,6 +111,7 @@ process mmseqs_search {
 
     mkdir -p all_hits tmp_search
 
+    ## Run the global search
     mmseqs search \
       q_db/q_db \
       SH_db/\${REFDB} \
@@ -124,10 +126,33 @@ process mmseqs_search {
       --search-type 3 \
       --strand 2
 
+    ### Select the best hit for each query
+    echo -e "..Selecting the best hit for each query\\n"
+
+    ## Keep only the top hit per query in the result DB
+    mkdir -p best_hits
+
+    mmseqs filterdb \
+      all_hits/all_hits \
+      best_hits/best_hits \
+      --extract-lines 1 \
+      --threads ${task.cpus}
+
+    ## Convert to tabular format
+    mmseqs convertalis \
+      q_db/q_db \
+      SH_db/\${REFDB} \
+      best_hits/best_hits \
+      best_hits.tsv \
+      --format-output "query,target,evalue,bits,alnlen,pident,qcov,tcov" \
+      --threads ${task.cpus}
+
     ## Clean up
     rm -r tmp_search
+
     """
 }
+
 
 
 // Prepare FASTA files for each (compound) cluster
