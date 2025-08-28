@@ -1,14 +1,4 @@
 
-/*
-params.input = "input.fasta"
-params.preclust_id   = 0.9
-params.preclust_cov  = 0.7
-params.preclust_kmer = 80
-params.ref_db_dir    = "ref_db"
-params.shdata        = "sh_matching/data"
-*/
-
-
 // Fast pre-clustering of the dataset (to split into chunks prior processing)
 process precluster {
 
@@ -104,6 +94,9 @@ process mmseqs_search {
       path "best_hits.tsv", emit: best_hits
 
     script:
+    sens_start = params.sens_start ? "--start-sens ${params.sens_start}" : ""
+    sens_step  = params.sens_step  ? "--sens-steps ${params.sens_step}"  : ""
+    exact_kmer = params.exact_kmer ? "--exact-kmer-matching"             : ""
     """
     echo -e "..MMseqs global search\\n"
 
@@ -120,12 +113,15 @@ process mmseqs_search {
       tmp_search \
       --threads ${task.cpus} \
       --alignment-mode 3 \
-      --min-seq-id 0.9 \
-      -s 5.7 \
-      --cov-mode 0 -c 0.7 \
-      --max-accept 50 \
+      --min-seq-id ${params.search_id} \
+      -s ${params.sensitivity} \
+      ${sens_start} ${sens_step} \
+      -c ${params.search_cov} \
+      --cov-mode 0 \
+      --max-accept ${params.max_accept} \
       --search-type 3 \
-      --strand 2
+      --strand 2 \
+      ${exact_kmer}
 
     ### Select the best hit for each query
     echo -e "..Selecting the best hit for each query\\n"
