@@ -16,7 +16,7 @@ RUN apt-get update -qq \
   && apt-get -y --no-install-recommends install \
     tar zip unzip pigz gzip zstd xz-utils bzip2 coreutils \
     curl wget git less gawk nano rename bc \
-    ca-certificates locales  \
+    ca-certificates locales procps \
     libtre-dev libtre5 zlib1g zlib1g-dev liblzma-dev libbz2-dev libcurl4-openssl-dev libglpk-dev libglpk40 \
     build-essential \
   && apt-get clean \
