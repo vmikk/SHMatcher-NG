@@ -14,9 +14,10 @@ Inputs per cluster:
 - centroid2sh:        `centroid2sh_mappings.txt` file from the SH database
 
 Output:
-- matches_{TH}.txt per threshold
-  (rows are the same as prdocued by `analyse_usearch_output_sh.py` of the original pipeline):
-  query_id\tbest_ref_id\tstatus\tSH_code\tcluster_contents_if_new
+- Single TSV file with header and the following columns:
+  query\tbest_ref\tstatus\tsh_code\textra\tthreshold
+  (rows are the same as produced by `analyse_usearch_output_sh.py` of the original pipeline,
+   with an added `threshold` column)
 
 Notes:
 - We detect if query clusters with its best reference at threshold TH (status "present")
@@ -30,6 +31,14 @@ Notes:
      it is used to translate the best-hit reference into the correct SH at each TH
      (the same centroid can belong to different SH codes at different cutoffs, 
       so this mapping must be threshold-specific)
+
+Usage:
+  postprocess_single_linkage.py \
+    --clusters-dir       calc_distm_out \
+    --cluster-membership cluster_membership.txt \
+    --best-hits          best_hits.tsv \
+    --centroid2sh        centroid2sh_mappings.txt \
+    --output             pp_matches/matches.tsv
 """
 
 import argparse
@@ -89,14 +98,14 @@ def invert_membership(clusters):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--clusters-dir",       required=True, help="Directory with calc_distm_out/*.txt per threshold")
-    ap.add_argument("--out-dir",            required=True, help="Output directory for matches_*.txt")
     ap.add_argument("--cluster-membership", required=True, help="TSV (no header): ClusterID, MemberType(Query|Ref), MemberID")
     ap.add_argument("--best-hits",          required=True, help="Output of MMseqs convertalis with best hits (TSV without header: query,target,evalue,bits,alnlen,pident,qcov,tcov)")
     ap.add_argument("--centroid2sh",        required=True, help="centroid2sh_mappings.txt for mapping ref -> SH per threshold code 1..6")
+    ap.add_argument("--output",             required=True, help="Output TSV path (single file)")
     args = ap.parse_args()
 
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = Path(args.output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Determine cluster ID from any threshold filename in the directory
     any_file = None
@@ -178,22 +187,25 @@ def main():
         "005": "6",  "0.005": "6",
     }
 
-    for th in THRESHOLDS:
-        th_code = th_to_code[th]
-        # goclust produces files named like mx_*.txt_out_TH with lines: clusterId\tseqId
-        files = sorted(Path(args.clusters_dir).glob(f"*_out_{th}"))
-        clusters = {}
-        for f in files:
-            part = load_clusters(f)
-            for cid, members in part.items():
-                # ensure cluster IDs are unique per cluster file by prefixing
-                key = f"{f.stem}_{cid}"
-                clusters[key] = members
-        membership = invert_membership(clusters)
+    # Write results (all thresholds are aggregated into a single file)
+    with open(out_path, "w") as o:
+        w = csv.writer(o, delimiter="\t", lineterminator="\n")
+        # Header
+        w.writerow(["query", "best_ref", "status", "sh_code", "extra", "threshold"])
 
-        outp = out_dir / f"matches_{th}.txt"
-        with open(outp, "w") as o:
-            w = csv.writer(o, delimiter="\t", lineterminator="\n")
+        for th in THRESHOLDS:
+            th_code = th_to_code[th]
+            # goclust produces files named like mx_*.txt_out_TH with lines: clusterId\tseqId
+            files = sorted(Path(args.clusters_dir).glob(f"*_out_{th}"))
+            clusters = {}
+            for f in files:
+                part = load_clusters(f)
+                for cid, members in part.items():
+                    # ensure cluster IDs are unique per cluster file by prefixing
+                    key = f"{f.stem}_{cid}"
+                    clusters[key] = members
+            membership = invert_membership(clusters)
+
             for q in sorted(query_ids):
                 best_ref = q2best.get(q, "")
                 # default values
@@ -203,18 +215,19 @@ def main():
 
                 cid = membership.get(q)
                 if cid is None:
-                    w.writerow([q, best_ref, status, sh_code, extra])
+                    w.writerow([q, best_ref, status, sh_code, extra, th])
                     continue
                 members = clusters[cid]
 
                 members_set = set(members)
                 ref_in_cluster = members_set & ref_ids
                 has_best_ref = best_ref in ref_in_cluster if best_ref else False
+                best_sh = map_by_th[th_code].get(best_ref, "") if best_ref else ""
 
                 if has_best_ref:
                     status = "present"
                     # Map best_ref to SH at this threshold code
-                    sh_code = map_by_th[th_code].get(best_ref, "")
+                    sh_code = best_sh
                     extra = ""
                 else:
                     # If no refs, check singleton vs new cluster
@@ -223,11 +236,14 @@ def main():
                         if only_q:
                             if len(members) == 1:
                                 status = "singleton"
-                                # SH code remains empty; extra empty
+                                # Keep sh_code as best_sh (context from best hit)
+                                sh_code = best_sh
                             else:
                                 status = "new cluster"
                                 # join members with space as in legacy
                                 extra = " ".join(members)
+                                # Provide SH context from best hit if available
+                                sh_code = best_sh
                         else:
                             # mixed but missing best ref; consider present if any ref maps to same SH as best_ref
                             if best_ref:
@@ -246,7 +262,7 @@ def main():
                         pick = sorted(ref_in_cluster)[0]
                         sh_code = map_by_th[th_code].get(pick, "")
 
-                w.writerow([q, best_ref, status, sh_code, extra])
+                w.writerow([q, best_ref, status, sh_code, extra, th])
 
 
 if __name__ == "__main__":
