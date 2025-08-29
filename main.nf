@@ -320,6 +320,12 @@ workflow {
   calc_distmx(ch_cls)
   
   // Agglomerative clustering (using a series of thresholds)
-  cluster_aggd(calc_distmx.out.mx)
+  cluster_aggd(
+    calc_distmx.out.mx,            // distance matrix for a cluster
+    cluster_extract.out.ids,       // cluster membership (for all queries and refs)
+    mmseqs_search.out.best_hits,   // best hits for all queries
+    db_centroid2sh                 // centroid2sh mapping (SH database part)
+    )
+
 
 }
