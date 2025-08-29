@@ -229,7 +229,10 @@ process calc_distmx {
 process cluster_aggd {
 
     input:
-      path mx              // distance matrix in tabbed pairs format
+      path mx                 // distance matrix in tabbed pairs format
+      path cluster_membership // cluster membership TSV (for queries and refs)
+      path best_hits          // best hits TSV (for all queries)
+      path db_centroid2sh     // centroid2sh mapping (SH database part)
 
     output:
       path "calc_distm_out/*", emit: clusters
@@ -249,7 +252,16 @@ process cluster_aggd {
         --output calc_distm_out/${mxbase}_out_{} \
         --method single \
         --cutoff {}" \
-      ::: 0.03 0.025 0.02 0.015 0.01 0.005
+      ::: 0.030 0.025 0.020 0.015 0.010 0.005
+
+    echo -e "Processing single-linkage clustering outputs\\n"
+
+    postprocess_single_linkage.py \
+      --clusters-dir       calc_distm_out \
+      --out-dir            pp_matches \
+      --cluster-membership ${cluster_membership} \
+      --best-hits          ${best_hits} \
+      --centroid2sh        ${db_centroid2sh}
 
     """
 }
