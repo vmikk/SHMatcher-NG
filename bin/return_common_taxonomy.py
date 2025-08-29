@@ -4,26 +4,52 @@
 # https://github.com/TU-NHM/sh_matching_pub/blob/master/sh_matching_analysis/scripts/return_common_taxonomy.py
 # git 5bb21fb, 2025-06-20
 
+"""
+Compute a single common taxonomy for each query by reconciling SH taxonomies
+across similarity thresholds (0.5-3.0%).
+
+Input is a tab-delimited file produced earlier in the pipeline ("matches_out_all.csv").
+Output is a tab-delimited file with one row per query containing the selected
+common taxonomy, a case label, and the rank depth used.
+
+Usage:
+return_common_taxonomy.py \
+  --input  /path/to/matches_out_all.csv \
+  --output /path/to/matches_out_taxonomy.csv
+"""
+
 import argparse
 import csv
-import os
 from pathlib import Path
 
-parser = argparse.ArgumentParser(description="Script to calculate single common taxonomy for all matches")
-parser.add_argument("run_id", help="Need run id in numeric format!")
+parser = argparse.ArgumentParser(
+    description="Calculate single common taxonomy for all matches."
+)
+
+parser.add_argument(
+    "--input",
+    "-i",
+    dest="input",
+    default="matches_out_all.csv",
+    help="Path to the input TSV with per-threshold taxonomies (default: matches_out_all.csv)",
+)
+parser.add_argument(
+    "--output",
+    "-o",
+    dest="output",
+    default="matches_out_taxonomy.csv",
+    help="Path to write the output TSV with the selected common taxonomy (default: matches_out_taxonomy.csv)",
+)
+
 args = parser.parse_args()
 
-# read in args
-run_id = args.run_id
-if not run_id.isdigit():
-    raise ValueError("Run id is not numeric", run_id)
+infile = Path(args.input)
+outfile = Path(args.output)
 
-user_dir = Path(f"{os.getcwd()}/userdir/{run_id}")
-matches_dir = user_dir / "matches"
-infile = matches_dir / f"matches_out_all.csv"
-outfile = matches_dir / f"matches_out_taxonomy.csv"
+# Ensure the output directory exists
+outfile.parent.mkdir(parents=True, exist_ok=True)
 
-with open(infile) as bh, open(outfile, "w") as o:
+with open(infile, encoding="utf-8") as bh, open(outfile, "w", encoding="utf-8") as o:
     # print header
     o.write("seq_id" + "\t" + "seq_name" + "\t" + "common_name_selection_status" + "\t" + "common_taxonomy" + "\t" + "common_rank" + "\n")
     dataReader = csv.reader(bh, delimiter="\t")
