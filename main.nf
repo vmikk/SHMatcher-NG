@@ -33,7 +33,9 @@ process precluster {
       --similarity-type 2 \
       --cov-mode 0 \
       -c ${params.preclust_cov} \
-      --kmer-per-seq ${params.preclust_kmer} \
+      --kmer-per-seq ${params.preclust_kmers} \
+      -k ${params.kmer_length} \
+      --spaced-kmer-mode ${params.spaced_kmer} \
       --split-memory-limit 100G \
       --remove-tmp-files 1 \
       --threads ${task.cpus}
@@ -119,9 +121,12 @@ process mmseqs_search {
       -c ${params.search_cov} \
       --cov-mode 0 \
       --max-accept ${params.max_accept} \
+      --max-seqs   ${params.max_seqs} \
       --search-type 3 \
       --strand 2 \
-      ${exact_kmer}
+      ${exact_kmer} \
+      --spaced-kmer-mode ${params.spaced_kmer} \
+      -k ${params.kmer_length}
 
     ### Select the best hit for each query
     echo -e "..Selecting the best hit for each query\\n"
