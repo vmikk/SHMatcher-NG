@@ -31,11 +31,13 @@ process precluster {
       --min-seq-id ${params.preclust_id} \
       --cluster-mode 0 \
       --similarity-type 2 \
-      --cov-mode 0 \
       -c ${params.preclust_cov} \
-      --kmer-per-seq ${params.preclust_kmers} \
+      --cov-mode ${params.cov_mode} \
       -k ${params.kmer_length} \
+      --kmer-per-seq ${params.preclust_kmers} \
+      --kmer-per-seq-scale ${params.preclust_kmerscale} \
       --spaced-kmer-mode ${params.spaced_kmer} \
+      --mask 0 \
       --split-memory-limit 100G \
       --remove-tmp-files 1 \
       --threads ${task.cpus}
