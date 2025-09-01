@@ -228,13 +228,15 @@ process calc_distmx {
 process cluster_aggd {
 
     input:
-      path mx                 // distance matrix in tabbed pairs format
-      path cluster_membership // cluster membership TSV (for queries and refs)
-      path best_hits          // best hits TSV (for all queries)
-      path db_centroid2sh     // centroid2sh mapping (SH database part)
+     tuple( 
+      path(mx),                 // distance matrix in tabbed pairs format
+      path(cluster_membership), // cluster membership TSV (for queries and refs)
+      path(best_hits),          // best hits TSV (for all queries)
+      path(db_centroid2sh) )    // centroid2sh mapping (SH database part)
 
     output:
       path "calc_distm_out/*", emit: clusters
+      path "*_matches.tsv",    emit: matches
 
     script:
     mxbase = mx.getBaseName()
@@ -257,10 +259,14 @@ process cluster_aggd {
 
     postprocess_single_linkage.py \
       --clusters-dir       calc_distm_out \
-      --out-dir            pp_matches \
       --cluster-membership ${cluster_membership} \
       --best-hits          ${best_hits} \
-      --centroid2sh        ${db_centroid2sh}
+      --centroid2sh        ${db_centroid2sh} \
+      --output             ${mxbase}_matches.tsv
+
+    """
+}
+
 
     """
 }
@@ -318,13 +324,26 @@ workflow {
   // Generate a distance matrix (for each cluster of sequences)
   calc_distmx(ch_cls)
   
+
+
+  // We need to reuse shared channels in `cluster_aggd`
+  // -> make a single tuple
+  ch_meta = cluster_extract.out.ids
+           .combine(mmseqs_search.out.best_hits)
+           .combine(db_centroid2sh)
+           .map { ids, best_hits, centroid2sh -> tuple(ids, best_hits, centroid2sh) }
+
+  ch_mx = calc_distmx.out.mx
+    .combine(ch_meta)
+    .map { mx, ids, best_hits, centroid2sh -> tuple(
+      mx,               // distance matrix for a cluster
+      ids,              // cluster membership (for all queries and refs)
+      best_hits,        // best hits for all queries
+      centroid2sh       // centroid2sh mapping (SH database part)
+    ) }
+
   // Agglomerative clustering (using a series of thresholds)
-  cluster_aggd(
-    calc_distmx.out.mx,            // distance matrix for a cluster
-    cluster_extract.out.ids,       // cluster membership (for all queries and refs)
-    mmseqs_search.out.best_hits,   // best hits for all queries
-    db_centroid2sh                 // centroid2sh mapping (SH database part)
-    )
+  cluster_aggd(ch_mx)
 
 
 }
