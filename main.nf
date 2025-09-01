@@ -268,6 +268,42 @@ process cluster_aggd {
 }
 
 
+
+// Aggregate matches
+//   This process should reproduce the logic 
+//   of `analyse_usearch_output_sh.py` + `merge_matches.py` 
+//   without nested clustering
+process aggregate_matches {
+
+    publishDir 'Results_aggregated', mode: 'copy', overwrite: true
+
+    input:
+      path(matches, stageAs: "matches1/*")  // cluster matches (aggregated at different thresholds)
+      // path(...., stageAs: "matches2/*")     // ...)
+      path(shs_out)                         // SH database file `shs_out.txt`
+      path(sh2compound)                     // SH database file `sh2compound_mapping.txt`
+      path(compounds_out)                   // SH database file `compounds_out.txt`
+      path(best_hits)                       // best hits TSV (for all queries)
+
+    output:
+      path "matches_out_all.csv", emit: all
+
+    script:
+    """
+    echo -e "Aggregating matches\\n"
+
+    aggregate_matches.py \
+      --matches-dirs   matches1 \
+      --best-hits      ${best_hits} \
+      --shs-file       ${shs_out} \
+      --sh2compound    ${sh2compound} \
+      --compounds-file ${compounds_out} \
+      --out            matches_out_all.csv
+
+    """
+}
+
+
     """
 }
 
