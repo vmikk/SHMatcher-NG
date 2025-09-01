@@ -98,9 +98,7 @@ process mmseqs_search {
       path "best_hits.tsv", emit: best_hits
 
     script:
-    sens_start = params.sens_start ? "--start-sens ${params.sens_start}" : ""
-    sens_step  = params.sens_step  ? "--sens-steps ${params.sens_step}"  : ""
-    exact_kmer = params.exact_kmer ? "--exact-kmer-matching"             : ""
+    exact_kmer = params.exact_kmer ? "--exact-kmer-matching" : ""
     """
     echo -e "..MMseqs global search\\n"
 
@@ -119,8 +117,6 @@ process mmseqs_search {
       --alignment-mode 3 \
       --search-type 3 \
       --min-seq-id ${params.search_id} \
-      -s ${params.sensitivity} \
-      ${sens_start} ${sens_step} \
       -c ${params.search_cov} \
       --cov-mode ${params.cov_mode} \
       --mask 0 \
