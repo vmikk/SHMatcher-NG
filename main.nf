@@ -117,14 +117,15 @@ process mmseqs_search {
       tmp_search \
       --threads ${task.cpus} \
       --alignment-mode 3 \
+      --search-type 3 \
       --min-seq-id ${params.search_id} \
       -s ${params.sensitivity} \
       ${sens_start} ${sens_step} \
       -c ${params.search_cov} \
-      --cov-mode 0 \
+      --cov-mode ${params.cov_mode} \
+      --mask 0 \
       --max-accept ${params.max_accept} \
       --max-seqs   ${params.max_seqs} \
-      --search-type 3 \
       --strand 2 \
       ${exact_kmer} \
       --spaced-kmer-mode ${params.spaced_kmer} \
