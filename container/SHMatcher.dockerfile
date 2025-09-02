@@ -42,16 +42,21 @@ RUN ${CONDA_PREFIX}/bin/mamba install -y \
     "ripgrep>=14.1.1" \
     "fd-find>=10.2.0" \
     "mmseqs2" \
+    "minimap2>=2.30" \
   && ${CONDA_PREFIX}/bin/mamba clean --all --yes
 
-## Add goclust and USEARCH
+## Add goclust, USEARCH, and DuckDB
 RUN cd /opt/software \
     && wget https://github.com/vmikk/goclust/releases/download/0.3b/goclust \
     && chmod +x goclust \
     && mv goclust ${CONDA_PREFIX}/bin/ \
     && wget https://raw.githubusercontent.com/rcedgar/usearch_old_binaries/refs/heads/main/bin/usearch11.0.667_i86linux64 \
     && chmod +x usearch11.0.667_i86linux64 \
-    && mv usearch11.0.667_i86linux64 ${CONDA_PREFIX}/bin/usearch
+    && mv usearch11.0.667_i86linux64 ${CONDA_PREFIX}/bin/usearch \
+    && wget https://github.com/duckdb/duckdb/releases/download/v1.3.2/duckdb_cli-linux-amd64.zip \
+    && unzip duckdb_cli-linux-amd64.zip \
+    && mv duckdb ${CONDA_PREFIX}/bin/duckdb \
+    && rm duckdb_cli-linux-amd64.zip
 
 ## Rust tools (from the Cargo-based stage)
 COPY --from=rust /usr/local/cargo/bin/runiq /opt/software/conda/bin/runiq
