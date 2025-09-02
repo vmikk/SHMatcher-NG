@@ -94,8 +94,9 @@ process mmseqs_search {
       path(refs, stageAs: 'SH_db/*') // reference database (`SH_db/...`)
 
     output:
-      path "all_hits/*",    emit: hits
-      path "best_hits.tsv", emit: best_hits
+      path "all_hits/*",    emit: hits       // all hits
+      path "top_hits/*",    emit: top_hits   // N best hits for compound clusters
+      path "best_hits.tsv", emit: best_hits  // best hit per query (for identity calculation)
 
     script:
     exact_kmer = params.exact_kmer ? "--exact-kmer-matching" : ""
@@ -127,10 +128,28 @@ process mmseqs_search {
       --spaced-kmer-mode ${params.spaced_kmer} \
       -k ${params.kmer_length}
 
+    ## Extract top-N hits per query - will be used for preparing compound clusters
+    ## (MMseqs2 writes results sorted by E-value)
+    mkdir -p top_hits
+    mmseqs filterdb \
+      all_hits/all_hits \
+      top_hits/top_hits \
+      --extract-lines ${params.top_hits}
+
+    ## TODO - add identity-based selection of top hits
+    # mmseqs convertalis \
+    #   q_db/q_db \
+    #   SH_db/\${REFDB} \
+    #   top_hits/top_hits \
+    #   top_hits.tsv \
+    #   --search-type 3 \
+    #   --format-output "query,target,evalue,bits,alnlen,pident,qcov,tcov" \
+    #   --threads ${task.cpus}
+
     ### Select the best hit for each query
     echo -e "..Selecting the best hit for each query\\n"
 
-    ## Keep only the top hit per query in the result DB
+    ## Get the best hit per query from the result DB
     mkdir -p best_hits
 
     mmseqs filterdb \
@@ -145,6 +164,7 @@ process mmseqs_search {
       SH_db/\${REFDB} \
       best_hits/best_hits \
       best_hits.tsv \
+      --search-type 3 \
       --format-output "query,target,evalue,bits,alnlen,pident,qcov,tcov" \
       --threads ${task.cpus}
 
