@@ -1,5 +1,24 @@
 #!/bin/bash
 
+## Script to parse minimap2 output and select top N hits per query using DuckDB
+
+## Usage: parse_minimap.sh [input_file|-] [max_hits_per_query] [-o|--output output_file]
+## 
+## Arguments:
+##   input_file:         input file in minimap2 PAF format (use '-' or omit for stdin)
+##   max_hits_per_query: maximum number of hits to return per query (default: 10)
+##   -o, --output:       output TSV file (default: stdout)
+##
+## Examples:
+##   parse_minimap.sh input.paf 5                          # read from file, top 5 hits, output to stdout
+##   minimap2 ... | parse_minimap.sh - 10 -o results.tsv   # read from stdin, top 10 hits, output to file
+
+## Sort order (for each query):
+# 1. Primary alignments over secondary (tpr column), increasing order
+# 2. Identity (prefer gap-compressed), decreasing order
+# 3. Coverage (and optionally alignment length), decreasing order
+# 4. Alignment length, decreasing order
+# 5. Mapping quality, increasing order (essentially a tie-breaker for primaries)
 
 # Parameter parsing
 INPUT_FILE=""
