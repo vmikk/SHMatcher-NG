@@ -350,17 +350,17 @@ workflow {
   cluster_extract(
     precluster.out.qdb,
     ch_ref,
-    mmseqs_search.out.hits,
+    mmseqs_search.out.top_hits,                  // or use `mmseqs_search.out.hits` for all hits
     prepare_cluster_keys.out.members_numeric,
     prepare_cluster_keys.out.reps_keys)
 
-  // Compound clusters
-  ch_cls = cluster_extract.out.clusters_with_ref.flatten()
+  // Clusters and compound clusters
+  ch_rrr = cluster_extract.out.clusters_with_ref.flatten()    // clusters with query and reference sequences
+  ch_qqq = cluster_extract.out.clusters_query_only.flatten()  // clusters with only query sequences
+  ch_cls = ch_rrr.mix(ch_qqq)
 
   // Generate a distance matrix (for each cluster of sequences)
   calc_distmx(ch_cls)
-  
-
 
   // We need to reuse shared channels in `cluster_aggd`
   // -> make a single tuple
