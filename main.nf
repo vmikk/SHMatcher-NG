@@ -179,6 +179,8 @@ process mmseqs_search {
 // Prepare FASTA files for each (compound) cluster
 process cluster_extract {
 
+    publishDir 'Results_clusters', mode: 'copy', overwrite: true
+
     input:
       path(q_db, stageAs: "q_db/*")     // database of query sequences (`q_db/q_db`)
       path(refs, stageAs: 'SH_db/*')    // reference database (`SH_db/...`)
@@ -246,6 +248,8 @@ process calc_distmx {
 
 // Agglomerative clustering of a distance matrix
 process cluster_aggd {
+
+    publishDir 'Results_cluster_aggd', mode: 'copy', overwrite: true
 
     input:
      tuple( 
