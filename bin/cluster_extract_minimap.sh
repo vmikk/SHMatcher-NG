@@ -1,6 +1,102 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+usage(){
+  echo "Usage: $(basename "$0") [options]" 
+  echo
+  echo "Required:"
+  echo "  -q, --query_seqs FILE         Input query sequences (FASTA)"
+  echo "  -c, --cluster_members FILE    Query-cluster membership TSV (Cluster_ID, Query_ID)"
+  echo "  -H, --top_hits FILE           Top N hits per query (TSV with header)"
+  echo "  -d, --db_seqs FILE            Database of SH sequences (FASTA)"
+  echo
+  echo "Optional:"
+  echo "  -T, --threads INT             Number of CPU threads"
+  echo "  -M, --memory SIZE             Memory limit for DuckDB, e.g. 100G"
+  echo "  -h, --help                    Show this help and exit"
+  exit 1
+}
+
+
+## Initialize variables
+QUERY_SEQS=""
+CLUSTER_MEMBERS=""
+TOP_HITS=""
+DB_SEQS=""
+THREADS=""
+MEMORY=""
+
+## Parse command-line options
+LONG_TO_SHORT_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --query_seqs=*)        LONG_TO_SHORT_ARGS+=("-q" "${1#*=}"); shift ;;
+    --query_seqs)          shift; LONG_TO_SHORT_ARGS+=("-q" "${1:-}"); shift || true ;;
+    --cluster_members=*)   LONG_TO_SHORT_ARGS+=("-c" "${1#*=}"); shift ;;
+    --cluster_members)     shift; LONG_TO_SHORT_ARGS+=("-c" "${1:-}"); shift || true ;;
+    --top_hits=*)          LONG_TO_SHORT_ARGS+=("-H" "${1#*=}"); shift ;;
+    --top_hits)            shift; LONG_TO_SHORT_ARGS+=("-H" "${1:-}"); shift || true ;;
+    --db_seqs=*)           LONG_TO_SHORT_ARGS+=("-d" "${1#*=}"); shift ;;
+    --db_seqs)             shift; LONG_TO_SHORT_ARGS+=("-d" "${1:-}"); shift || true ;;
+    --threads=*)           LONG_TO_SHORT_ARGS+=("-T" "${1#*=}"); shift ;;
+    --threads)             shift; LONG_TO_SHORT_ARGS+=("-T" "${1:-}"); shift || true ;;
+    --memory=*)            LONG_TO_SHORT_ARGS+=("-M" "${1#*=}"); shift ;;
+    --memory)              shift; LONG_TO_SHORT_ARGS+=("-M" "${1:-}"); shift || true ;;
+    --help|-h)             usage ;;
+    --)                    shift; break ;;
+    -*)                    LONG_TO_SHORT_ARGS+=("$1"); shift ;;
+    *)                     LONG_TO_SHORT_ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${LONG_TO_SHORT_ARGS[@]}"
+
+OPTIND=1
+while getopts ":q:c:H:d:T:M:h" opt; do
+  case "$opt" in
+    q) QUERY_SEQS="$OPTARG" ;;
+    c) CLUSTER_MEMBERS="$OPTARG" ;;
+    H) TOP_HITS="$OPTARG" ;;
+    d) DB_SEQS="$OPTARG" ;;
+    T) THREADS="$OPTARG" ;;
+    M) MEMORY="$OPTARG" ;;
+    h) usage ;;
+    :) echo "Error: Option -$OPTARG requires an argument." >&2; usage ;;
+    \?) echo "Error: Invalid option: -$OPTARG" >&2; usage ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+if [[ $# -gt 0 ]]; then
+  echo "Error: Unexpected positional arguments: $*" >&2
+  usage
+fi
+
+## Validate input parameters
+if [[ -z "$QUERY_SEQS" || -z "$CLUSTER_MEMBERS" || -z "$TOP_HITS" || -z "$DB_SEQS" ]]; then
+    echo -e "Error: Missing required parameters!\n"
+    usage
+fi  
+
+## Threads should be a positive integer
+if [[ -n "$THREADS" && "$THREADS" -le 0 ]]; then
+    echo -e "Error: Threads must be a positive integer!\n"
+    usage
+fi 
+
+## View user-supplied parameters
+echo -e "\nInput parameters:"
+echo "Query sequences: $QUERY_SEQS"
+echo "Cluster members: $CLUSTER_MEMBERS"
+echo "Top hits: $TOP_HITS"
+echo "Database sequences: $DB_SEQS"
+if [[ -n "$THREADS" ]]; then
+    echo "Threads: $THREADS"
+fi
+if [[ -n "$MEMORY" ]]; then
+    echo "Memory: $MEMORY"
+fi
+
+
 ## Convert data to parquet
 echo -e "Converting data to parquet\n"
 
