@@ -435,4 +435,35 @@ TO 'out_query_only' (
 ## Execute the command
 echo -e "..Executing DuckDB command\n"
 duckdb -c "${SEQS_COMMAND}"
-                             
+
+
+echo -e "..Checking for multiple files per partition\n"
+
+## Check for any data_1.fasta, data_2.fasta files
+multi_files_with_ref=$(find out_with_ref -name "data_[1-9]*.fasta" 2>/dev/null | wc -l)
+multi_files_query_only=$(find out_query_only -name "data_[1-9]*.fasta" 2>/dev/null | wc -l)
+
+if [ "$multi_files_with_ref" -gt 0 ] || [ "$multi_files_query_only" -gt 0 ]; then
+    echo "WARNING: Found multiple files per partition:"
+    echo "  out_with_ref: $multi_files_with_ref extra files"
+    echo "  out_query_only: $multi_files_query_only extra files"
+    echo "  This indicates DuckDB created multiple files per partition."
+    
+    echo -e "\nExtra files found:"
+    find out_with_ref out_query_only -name "data_[1-9]*.fasta" 2>/dev/null | head -10
+    
+    echo -e "\nMerging multiple files per partition..."
+    
+    ## Merge multiple files in the same partition directory
+    for dir in $(find out_with_ref out_query_only -type d -name "cluster_name=*" 2>/dev/null); do
+        if [ $(find "$dir" -name "data_*.fasta" | wc -l) -gt 1 ]; then
+            echo "Merging files in: $dir"
+            cat "$dir"/data_*.fasta > "$dir"/merged.fasta
+            rm "$dir"/data_*.fasta
+            mv "$dir"/merged.fasta "$dir"/data_0.fasta
+        fi
+    done
+else
+    echo "Single file per partition confirmed (data_0.fasta only)"
+fi
+
