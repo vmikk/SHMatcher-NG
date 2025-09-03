@@ -85,18 +85,18 @@ COPY (
   -- unique query members per cluster
   query_members AS (
     SELECT DISTINCT
-      cm.Cluster_ID    AS ClusterID,
-      'Query'::VARCHAR AS MemberType,
-      cm.Query_ID      AS MemberID
+      cm.Cluster_ID        AS ClusterID,
+      'Query'              AS MemberType,
+      cm.Query_ID::VARCHAR AS MemberID
     FROM cm
   ),
 
   -- unique sseqid hits per cluster (for all members)
-  sseqid_members AS (
+  sseqid_hits AS (
     SELECT DISTINCT
-      cm.Cluster_ID  AS ClusterID,
-      'Ref'::VARCHAR AS MemberType,
-      th.sseqid      AS MemberID
+      cm.Cluster_ID      AS ClusterID,
+      'Ref'              AS MemberType,
+      th.sseqid::VARCHAR AS MemberID
     FROM cm
     JOIN th
       ON th.qseqid = cm.Query_ID
@@ -106,8 +106,8 @@ COPY (
   SELECT DISTINCT ClusterID, MemberType, MemberID
   FROM (
     SELECT * FROM query_members
-    UNION ALL
-    SELECT * FROM sseqid_members
+    UNION 
+    SELECT * FROM sseqid_hits
   )
   ORDER BY ClusterID, MemberType, MemberID
 ) TO 'cluster_membership.txt'
@@ -117,6 +117,10 @@ COPY (
 ## Execute the command
 echo -e "..Executing DuckDB command\n"
 duckdb -c "${DUCKDB_COMMAND}"
+
+
+
+
 
 echo -e "\n\nEnriching cluster_membership with sequences\n"
 
