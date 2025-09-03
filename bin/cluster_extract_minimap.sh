@@ -503,3 +503,30 @@ find out_query_only -name "*.fasta" \
 
 ## Remove empty directories
 find out_with_ref out_query_only -type d -empty -delete
+
+
+## Final summary
+echo -e "\n=== FASTA generation complete ==="
+
+echo "Validating counts"
+
+## Input seqs
+seq_count_in=$(rg -c "^>" "$QUERY_SEQS" 2>/dev/null || echo "0")
+
+## Output seqs (query + ref)
+seq_count_out1=$(find out_with_ref -name "*.fasta" | parallel -j1 "cat {}" | seqkit stat -T | awk 'NR==2{print $4}')
+seq_count_out2=$(find out_query_only -name "*.fasta" | parallel -j1 "cat {}" | seqkit stat -T | awk 'NR==2{print $4}')
+
+## Number of refs
+seq_count_refs=$(awk '$2 == "Ref" { count++ } END { print count }' cluster_membership.txt)
+
+## Number of valid query seqs in output
+seq_count_out=$((seq_count_out1 + seq_count_out2 - seq_count_refs))
+
+echo "  Sequences in:  $seq_count_in"
+echo "  Sequences out: $seq_count_out"
+
+if [ "$seq_count_in" -ne "$seq_count_out" ]; then
+  echo "ERROR: Number of sequences in and out do not match"
+  exit 1
+fi
