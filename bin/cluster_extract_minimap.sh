@@ -117,5 +117,66 @@ COPY (
 ## Execute the command
 echo -e "..Executing DuckDB command\n"
 duckdb -c "${DUCKDB_COMMAND}"
-                             
 
+echo -e "\n\nEnriching cluster_membership with sequences\n"
+
+echo -e "..Preparing DuckDB command\n"
+
+SEQS_COMMAND+="
+-- Input files:
+--   cluster_membership.txt  (TSV with columns: ClusterID, MemberType, MemberID)
+--   db_seqs.parquet         (columns: SeqID, Seq)
+--   query_seqs.parquet      (columns: SeqID, Seq)
+WITH
+cm AS (
+  SELECT
+    CAST(ClusterID  AS VARCHAR) AS ClusterID,
+    CAST(MemberType AS VARCHAR) AS MemberType,
+    CAST(MemberID   AS VARCHAR) AS MemberID
+  FROM read_csv_auto('cluster_membership.txt', delim='\t', header=true)
+),
+
+-- Load sequences dictionaries (+ tag with a priority so we can break ties)
+db AS (
+  SELECT CAST(SeqID AS VARCHAR) AS SeqID,
+         CAST(Seq   AS VARCHAR) AS Seq,
+         0 AS src_order
+  FROM 'db_seqs.parquet'
+),
+qry AS (
+  SELECT CAST(SeqID AS VARCHAR) AS SeqID,
+         CAST(Seq   AS VARCHAR) AS Seq,
+         1 AS src_order
+  FROM 'query_seqs.parquet'
+),
+all_seqs AS (
+  SELECT * FROM db
+  UNION ALL
+  SELECT * FROM qry
+),
+
+-- Resolve duplicates by SeqID (prefer rows with higher src_order = query_seqs)
+seq_map AS (
+  SELECT
+    SeqID,
+    arg_max(Seq, src_order) AS Seq
+  FROM all_seqs
+  GROUP BY SeqID
+)
+
+-- Add Seq to the cluster membership table
+SELECT
+  cm.ClusterID,
+  cm.MemberType,
+  cm.MemberID,
+  sm.Seq
+FROM cm
+LEFT JOIN seq_map sm
+  ON sm.SeqID = cm.MemberID
+ORDER BY cm.ClusterID, cm.MemberType, cm.MemberID;
+"
+
+## Execute the command
+echo -e "..Executing DuckDB command\n"
+duckdb -c "${SEQS_COMMAND}"
+                             
