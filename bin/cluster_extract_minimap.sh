@@ -37,7 +37,7 @@ cat query_cluster_membership.tsv | duckdb :memory: \
         'Cluster_ID': 'VARCHAR',
         'Query_ID': 'VARCHAR'
       });
-     COPY tbl TO 'cluster_membership.parquet'
+     COPY tbl TO 'query_cluster_members.parquet'
      (FORMAT PARQUET, COMPRESSION ZSTD, COMPRESSION_LEVEL 3);"
 
 echo -e "..Top hits\n"
@@ -53,57 +53,69 @@ cat top_hits.tsv | duckdb :memory: \
 
 echo -e "\n\nMerge query and target sequences\n"
 
-
-## Start the SQL command
-echo -e "\nPreparing DuckDB command"
+echo -e "..Preparing DuckDB command\n"
 
 DUCKDB_COMMAND=""
 
+## Add configuration settings (if provided)
+if [[ -n "$THREADS" ]]; then
+    DUCKDB_COMMAND+="
+SET threads TO ${THREADS};
+"
+fi
+
+if [[ -n "$MEMORY" ]]; then
+    DUCKDB_COMMAND+="
+SET memory_limit = '${MEMORY}';
+"
+fi
+
 DUCKDB_COMMAND+="
-WITH
-cm AS (
-  SELECT Cluster_ID, Query_ID
-  FROM 'cluster_membership.parquet'
-),
-th AS (
-  SELECT qseqid, sseqid
-  FROM 'top_hits.parquet'
-),
+COPY (
+  WITH
+  cm AS (
+    SELECT Cluster_ID, Query_ID
+    FROM 'query_cluster_members.parquet'
+  ),
+  th AS (
+    SELECT qseqid, sseqid
+    FROM 'top_hits.parquet'
+  ),
 
--- unique member IDs per cluster
-members AS (
-  SELECT
-    Cluster_ID,
-    list(DISTINCT Query_ID) AS member_query_ids
-  FROM cm
-  GROUP BY Cluster_ID
-),
+  -- unique query members per cluster
+  query_members AS (
+    SELECT DISTINCT
+      cm.Cluster_ID    AS ClusterID,
+      'Query'::VARCHAR AS MemberType,
+      cm.Query_ID      AS MemberID
+    FROM cm
+  ),
 
--- union of all sseqids (matches) for every member in the cluster
-hits AS (
-  SELECT
-    cm.Cluster_ID,
-    -- drop NULLs using FILTER; DISTINCT removes duplicates
-    list(DISTINCT th.sseqid) FILTER (WHERE th.sseqid IS NOT NULL) AS cluster_sseqids
-  FROM cm
-  LEFT JOIN th
-    ON th.qseqid = cm.Query_ID            -- cast if types differ, e.g. th.qseqid::TEXT = cm.Query_ID::TEXT
-  GROUP BY cm.Cluster_ID
-)
+  -- unique sseqid hits per cluster (for all members)
+  sseqid_members AS (
+    SELECT DISTINCT
+      cm.Cluster_ID  AS ClusterID,
+      'Ref'::VARCHAR AS MemberType,
+      th.sseqid      AS MemberID
+    FROM cm
+    JOIN th
+      ON th.qseqid = cm.Query_ID
+    WHERE th.sseqid IS NOT NULL
+  )
 
-SELECT
-  m.Cluster_ID,
-  -- sort the lists to make output deterministic
-  list_sort(m.member_query_ids)   AS member_query_ids,
-  list_sort(h.cluster_sseqids)    AS cluster_sseqids
-FROM members m
-LEFT JOIN hits h USING (Cluster_ID)
-ORDER BY m.Cluster_ID;
+  SELECT DISTINCT ClusterID, MemberType, MemberID
+  FROM (
+    SELECT * FROM query_members
+    UNION ALL
+    SELECT * FROM sseqid_members
+  )
+  ORDER BY ClusterID, MemberType, MemberID
+) TO 'cluster_membership.txt'
+  (FORMAT 'csv', DELIMITER '\t', HEADER TRUE);
 "
 
 ## Execute the command
-echo -e "\nExecuting DuckDB command"
-
+echo -e "..Executing DuckDB command\n"
 duckdb -c "${DUCKDB_COMMAND}"
                              
 
