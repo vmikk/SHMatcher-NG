@@ -467,3 +467,19 @@ else
     echo "Single file per partition confirmed (data_0.fasta only)"
 fi
 
+
+## Rename FASTA files and put them under out_with_ref/ OR out_query_only/
+echo -e "\n..Moving FASTA files to final structure\n"
+
+find out_with_ref -name "*.fasta" \
+  | parallel -j1 \
+    --rpl '{N} s:cluster_name=:: ; s:/data_0::' \
+    "mv {} {N}"
+    
+find out_query_only -name "*.fasta" \
+  | parallel -j1 \
+    --rpl '{N} s:cluster_name=:: ; s:/data_0::' \
+    "mv {} {N}"
+
+## Remove empty directories
+find out_with_ref out_query_only -type d -empty -delete
