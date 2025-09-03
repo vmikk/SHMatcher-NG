@@ -228,7 +228,21 @@ duckdb -c "${DUCKDB_COMMAND}"
 
 echo -e "\n\nEnriching cluster_membership with sequences\n"
 
-echo -e "..Preparing DuckDB command\n"
+
+SEQS_COMMAND=""
+
+if [[ -n "$THREADS" ]]; then
+    SEQS_COMMAND+="
+SET threads TO ${THREADS};
+"
+fi
+
+if [[ -n "$MEMORY" ]]; then
+    SEQS_COMMAND+="
+SET memory_limit = '${MEMORY}';
+"
+fi
+
 
 SEQS_COMMAND+="
 -- Input files:
