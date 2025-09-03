@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+## TODO:
+# - replace custom FASTA writing tricks with `exon`?
+#   https://github.com/wheretrue/exon-duckdb
+#   Current problem is that DuckDB's partitioned COPY doesn't guarantee ordering within partitions
+#   which lead to errors in the FASTA format (e.g., sequence comes before header)
+#   --> for now added explicit ordering hierarchy:
+
+
 usage(){
   echo "Usage: $(basename "$0") [options]" 
   echo
@@ -315,51 +323,41 @@ COPY (
   ),
 
   -- Generate FASTA format lines for clusters WITH references
+  -- Use explicit ordering to ensure header comes before sequence
   fasta_lines_with_ref AS (
     SELECT 
       cluster_name,
       MemberID,
-      0 AS line_order,
-      '>' || MemberID AS line_content
-    FROM enriched_members
-    WHERE output_dir = 'out_with_ref'
-    
-    UNION ALL
-    
-    SELECT 
-      cluster_name,
-      MemberID,
-      1 AS line_order,
-      Seq AS line_content
-    FROM enriched_members
-    WHERE output_dir = 'out_with_ref'
-  ),
-  
-  -- Generate FASTA format lines for clusters QUERY-ONLY
-  fasta_lines_query_only AS (
-    SELECT 
-      cluster_name,
-      MemberID,
-      0 AS line_order,
-      '>' || MemberID AS line_content
-    FROM enriched_members
-    WHERE output_dir = 'out_query_only'
-    
-    UNION ALL
-    
-    SELECT 
-      cluster_name,
-      MemberID,
-      1 AS line_order,
-      Seq AS line_content
-    FROM enriched_members
-    WHERE output_dir = 'out_query_only'
+      member_order,
+      line_type,
+      ROW_NUMBER() OVER (
+        PARTITION BY cluster_name 
+        ORDER BY member_order, line_type
+      ) AS global_line_order,
+      CASE 
+        WHEN line_type = 0 THEN '>' || MemberID
+        WHEN line_type = 1 THEN Seq
+      END AS line_content
+    FROM (
+      SELECT 
+        cluster_name,
+        MemberID,
+        Seq,
+        ROW_NUMBER() OVER (
+          PARTITION BY cluster_name 
+          ORDER BY MemberID
+        ) AS member_order,
+        line_type
+      FROM enriched_members
+      CROSS JOIN (VALUES (0), (1)) AS t(line_type)
+      WHERE output_dir = 'out_with_ref'
+    ) ordered_members
   )
 
   -- First export: clusters with references
   SELECT cluster_name, line_content
   FROM fasta_lines_with_ref
-  ORDER BY cluster_name, MemberID, line_order
+  ORDER BY cluster_name, global_line_order
 )
 TO 'out_with_ref' (
   FORMAT CSV,
@@ -413,16 +411,38 @@ COPY (
     CROSS JOIN padding_params pp
   ),
   fasta_lines_query_only AS (
-    SELECT cluster_name, MemberID, 0 AS line_order, '>' || MemberID AS line_content
-    FROM enriched_members WHERE output_dir = 'out_query_only'
-    UNION ALL
-    SELECT cluster_name, MemberID, 1 AS line_order, Seq AS line_content
-    FROM enriched_members WHERE output_dir = 'out_query_only'
+    SELECT 
+      cluster_name,
+      MemberID,
+      member_order,
+      line_type,
+      ROW_NUMBER() OVER (
+        PARTITION BY cluster_name 
+        ORDER BY member_order, line_type
+      ) AS global_line_order,
+      CASE 
+        WHEN line_type = 0 THEN '>' || MemberID
+        WHEN line_type = 1 THEN Seq
+      END AS line_content
+    FROM (
+      SELECT 
+        cluster_name,
+        MemberID,
+        Seq,
+        ROW_NUMBER() OVER (
+          PARTITION BY cluster_name 
+          ORDER BY MemberID
+        ) AS member_order,
+        line_type
+      FROM enriched_members
+      CROSS JOIN (VALUES (0), (1)) AS t(line_type)
+      WHERE output_dir = 'out_query_only'
+    ) ordered_members
   )
   
   SELECT cluster_name, line_content
   FROM fasta_lines_query_only
-  ORDER BY cluster_name, MemberID, line_order
+  ORDER BY cluster_name, global_line_order
 )
 TO 'out_query_only' (
   FORMAT CSV,
