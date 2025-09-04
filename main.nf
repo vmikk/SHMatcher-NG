@@ -221,6 +221,38 @@ process cluster_extract {
     """
 }
 
+
+// Run minimap2 search
+process minmap2_search {
+
+    input:
+      path(input)              // input FASTA file
+      path(mmi)                // reference database (indexed `mmi` file)
+
+    output:
+      path "top_hits.tsv",  emit: top_hits
+      path "best_hits.tsv", emit: best_hits
+
+    script:
+    """
+    echo -e "Running minimap2 search\\n"
+
+    minimap2 \
+        -t ${task.cpus} \
+        -N ${params.minimap_n_candidates} --secondary=yes --cs \
+        ${mmi} \
+        ${input} \
+      | grep -v -e \$'\\ttp:A:I' -e \$'\\ttp:A:i' \
+      | parse_minimap.sh - ${params.top_hits} -o top_hits.tsv
+
+    ## Extract the best hit per query
+    csvtk uniq -t -T -f qseqid -n 1 top_hits.tsv > best_hits.tsv
+
+    """
+}
+
+
+
 // Generate a distance matrix
 process calc_distmx {
 
