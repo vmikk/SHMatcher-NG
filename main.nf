@@ -528,13 +528,25 @@ workflow {
 
   // Collect and aggregate all matches
   ch_aggd = cluster_aggd.out.matches.collect()
-  aggregate_matches(
-    ch_aggd,                        // SH matches (aggregated at different thresholds)
-    db_shs,                         // SH database file `shs_out.txt`
-    db_sh2compound,                 // SH database file `sh2compound_mapping.txt`
-    db_compound,                    // SH database file `compounds_out.txt`
-    mmseqs_search.out.best_hits     // best hits TSV (for all queries)
-    )
+
+  if(params.method == "mmseqs") {
+    aggregate_matches(
+      ch_aggd,                        // SH matches (aggregated at different thresholds)
+      db_shs,                         // SH database file `shs_out.txt`
+      db_sh2compound,                 // SH database file `sh2compound_mapping.txt`
+      db_compound,                    // SH database file `compounds_out.txt`
+      mmseqs_search.out.best_hits     // best hits TSV (for all queries)
+      )
+  }
+  if(params.method == "minimap") {
+    aggregate_matches(
+      ch_aggd,                        // SH matches (aggregated at different thresholds)
+      db_shs,                         // SH database file `shs_out.txt`
+      db_sh2compound,                 // SH database file `sh2compound_mapping.txt`
+      db_compound,                    // SH database file `compounds_out.txt`
+      minimap2_search.out.best_hits   // best hits TSV (for all queries)
+      )
+  }
 
 
 }
