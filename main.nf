@@ -177,7 +177,7 @@ process mmseqs_search {
 
 
 // Prepare FASTA files for each (compound) cluster
-process cluster_extract {
+process cluster_extract_mmseqs {
 
     publishDir 'Results_clusters', mode: 'copy', overwrite: true
 
@@ -201,7 +201,7 @@ process cluster_extract {
 
     parallel --jobs ${task.cpus} \
       -a "${reps_keys}" \
-      "cluster_extract.sh \
+      "cluster_extract_mmseqs.sh \
         --rep            {} \
         --q-db-dir       q_db \
         --ref-db-dir     SH_db \
@@ -470,7 +470,7 @@ workflow {
       ch_ref)
 
     // Prepare FASTA files for each (compound) cluster
-    cluster_extract(
+    cluster_extract_mmseqs(
       precluster.out.qdb,
       ch_ref,
       mmseqs_search.out.top_hits,                  // or use `mmseqs_search.out.hits` for all hits
@@ -478,13 +478,13 @@ workflow {
       prepare_cluster_keys.out.reps_keys)
 
     // Clusters and compound clusters
-    ch_rrr = cluster_extract.out.clusters_with_ref.flatten()    // clusters with query and reference sequences
-    ch_qqq = cluster_extract.out.clusters_query_only.flatten()  // clusters with only query sequences
+    ch_rrr = cluster_extract_mmseqs.out.clusters_with_ref.flatten()    // clusters with query and reference sequences
+    ch_qqq = cluster_extract_mmseqs.out.clusters_query_only.flatten()  // clusters with only query sequences
     ch_cls = ch_rrr.mix(ch_qqq)
 
     // We need to reuse shared channels in `cluster_aggd`
     // -> make a single tuple
-    ch_meta = cluster_extract.out.ids
+    ch_meta = cluster_extract_mmseqs.out.ids
             .combine(mmseqs_search.out.best_hits)
             .combine(db_centroid2sh)
             .map { ids, best_hits, centroid2sh -> tuple(ids, best_hits, centroid2sh) }
