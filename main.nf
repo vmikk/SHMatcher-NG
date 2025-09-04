@@ -224,7 +224,8 @@ process cluster_extract_mmseqs {
 
 
 // Run minimap2 search
-process minmap2_search {
+process minimap2_search {
+
 
     input:
       path(input)              // input FASTA file
@@ -254,7 +255,7 @@ process minmap2_search {
 
 
 // Prepare FASTA files for each (compound) cluster based on minimap2 hits
-process cluster_extract_minmap {
+process cluster_extract_minimap {
 
     publishDir 'Results_clusters', mode: 'copy', overwrite: true
 
@@ -446,15 +447,15 @@ workflow {
   if(params.method == "minimap") {
     
     // Global search (queries vs SH database)
-    minmap2_search(
+    minimap2_search(
       ch_inp,
       ch_ref)
     
     // Prepare FASTA files for each (compound) cluster
-    cluster_extract_minmap(
+    cluster_extract_minimap(
       ch_inp,                        // input sequences (FASTA)
       precluster.out.membership,     // query - cluster membership (named)
-      minmap2_search.out.top_hits,   // top N hits to the database (per query)
+      minimap2_search.out.top_hits,   // top N hits to the database (per query)
       db_sanger_sh_full              // database sequences (FASTA)
     )
 
