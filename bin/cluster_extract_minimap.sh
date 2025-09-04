@@ -106,7 +106,7 @@ fi
 
 
 ## Convert data to parquet
-echo -e "Converting data to parquet\n"
+echo -e "\n\nConverting data to parquet\n"
 
 seqs_to_parquet (){
   # $1 = output file (parquet)
@@ -125,14 +125,14 @@ seqs_to_parquet (){
 }
 
 
-echo -e "..Query sequences\n"
-seqkit fx2tab test_inp.fasta | sed 's/\t$//' | seqs_to_parquet "query_seqs.parquet"
+echo "..Query sequences"
+seqkit fx2tab "$QUERY_SEQS" | sed 's/\t$//' | seqs_to_parquet "query_seqs.parquet"
 
-echo -e "..Database sequences\n"
-seqkit fx2tab sanger_refs_sh_full.fasta | sed 's/\t$//' | seqs_to_parquet "db_seqs.parquet"
+echo "..Database sequences"
+seqkit fx2tab "$DB_SEQS" | sed 's/\t$//' | seqs_to_parquet "db_seqs.parquet"
 
-echo -e "..Cluster membership\n"
-cat query_cluster_membership.tsv | duckdb :memory: \
+echo "..Cluster membership"
+cat "$CLUSTER_MEMBERS" | duckdb :memory: \
     "CREATE TEMPORARY TABLE tbl AS SELECT * FROM read_csv('/dev/stdin',
       auto_detect = false,
       header = false,
@@ -144,8 +144,8 @@ cat query_cluster_membership.tsv | duckdb :memory: \
      COPY tbl TO 'query_cluster_members.parquet'
      (FORMAT PARQUET, COMPRESSION ZSTD, COMPRESSION_LEVEL 3);"
 
-echo -e "..Top hits\n"
-cat top_hits.tsv | duckdb :memory: \
+echo "..Top hits"
+cat "$TOP_HITS" | duckdb :memory: \
 "COPY (
     SELECT qseqid, sseqid
     FROM read_csv_auto('/dev/stdin', delim='\t', header=true)
@@ -157,7 +157,7 @@ cat top_hits.tsv | duckdb :memory: \
 
 echo -e "\n\nMerge query and target sequences\n"
 
-echo -e "..Preparing DuckDB command\n"
+echo "..Preparing DuckDB command"
 
 DUCKDB_COMMAND=""
 
@@ -219,9 +219,8 @@ COPY (
 "
 
 ## Execute the command
-echo -e "..Executing DuckDB command\n"
+echo "..Executing DuckDB command"
 duckdb -c "${DUCKDB_COMMAND}"
-
 
 
 
