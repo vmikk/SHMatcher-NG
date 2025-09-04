@@ -49,7 +49,8 @@ process precluster {
       q_db/q_db \
       linclusters_db \
       query_cluster_membership.tsv \
-      --threads ${task.cpus}
+      --threads ${task.cpus} \
+      --first-seq-as-repr 0
 
     ## Clean up
     rm -r tmplc
