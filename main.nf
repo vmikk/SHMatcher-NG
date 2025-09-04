@@ -382,12 +382,20 @@ workflow {
   db_sanger_sh_full = Channel.fromPath( params.shdata + '/sanger_refs_sh_full.fasta').first()
   // TODO - check which of these are needed
 
+  // Reference database
+  if(params.method == "mmseqs") {
+    // MMseqs-formatted
+    ch_ref = channel.fromPath("${params.ref_db_dir}/*", checkIfExists: true).collect()
+  }
+  if(params.method == "minimap") {
+    // Minimap2-formatted
+    ch_ref = channel.fromPath("${params.ref_db}", checkIfExists: true)
+  }
+
+
 
   // Input FASTA file
   ch_inp = channel.fromPath(params.input)
-  
-  // Reference database (MMseqs-formatted)
-  ch_ref = channel.fromPath("${params.ref_db_dir}/*", checkIfExists: true).collect()
 
   // Lin-cluster query sequences
   precluster(ch_inp)
@@ -397,33 +405,49 @@ workflow {
     precluster.out.qdb,
     precluster.out.membership)
 
-  // Global search (queries vs SH database)
-  mmseqs_search(
-    precluster.out.qdb,
-    ch_ref)
 
-  // Prepare FASTA files for each (compound) cluster
-  cluster_extract(
-    precluster.out.qdb,
-    ch_ref,
-    mmseqs_search.out.top_hits,                  // or use `mmseqs_search.out.hits` for all hits
-    prepare_cluster_keys.out.members_numeric,
-    prepare_cluster_keys.out.reps_keys)
 
-  // Clusters and compound clusters
-  ch_rrr = cluster_extract.out.clusters_with_ref.flatten()    // clusters with query and reference sequences
-  ch_qqq = cluster_extract.out.clusters_query_only.flatten()  // clusters with only query sequences
-  ch_cls = ch_rrr.mix(ch_qqq)
+  // Minimap2 search
+  if(params.method == "minimap") {
+    
+    // Global search (queries vs SH database)
+    minmap2_search(
+      ch_inp,
+      ch_ref)
+    
+  } // end of Minimap2 search
+  
 
-  // Generate a distance matrix (for each cluster of sequences)
-  calc_distmx(ch_cls)
 
-  // We need to reuse shared channels in `cluster_aggd`
-  // -> make a single tuple
-  ch_meta = cluster_extract.out.ids
-           .combine(mmseqs_search.out.best_hits)
-           .combine(db_centroid2sh)
-           .map { ids, best_hits, centroid2sh -> tuple(ids, best_hits, centroid2sh) }
+  // MMseqs search
+  if(params.method == "mmseqs") {
+    
+    // Global search (queries vs SH database)
+    mmseqs_search(
+      precluster.out.qdb,
+      ch_ref)
+
+    // Prepare FASTA files for each (compound) cluster
+    cluster_extract(
+      precluster.out.qdb,
+      ch_ref,
+      mmseqs_search.out.top_hits,                  // or use `mmseqs_search.out.hits` for all hits
+      prepare_cluster_keys.out.members_numeric,
+      prepare_cluster_keys.out.reps_keys)
+
+    // Clusters and compound clusters
+    ch_rrr = cluster_extract.out.clusters_with_ref.flatten()    // clusters with query and reference sequences
+    ch_qqq = cluster_extract.out.clusters_query_only.flatten()  // clusters with only query sequences
+    ch_cls = ch_rrr.mix(ch_qqq)
+
+    // We need to reuse shared channels in `cluster_aggd`
+    // -> make a single tuple
+    ch_meta = cluster_extract.out.ids
+            .combine(mmseqs_search.out.best_hits)
+            .combine(db_centroid2sh)
+            .map { ids, best_hits, centroid2sh -> tuple(ids, best_hits, centroid2sh) }
+
+  } // end of MMseqs search
 
   ch_mx = calc_distmx.out.mx
     .combine(ch_meta)
