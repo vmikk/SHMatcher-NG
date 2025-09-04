@@ -7,7 +7,7 @@ for a single (compound) cluster and similarity threshold (TH) series.
 Inputs per cluster:
 - clusters_dir:       directory containing calc_distm_out files named like `mx_cluster_<ClusterID>_out_{TH}`
                       where TH in {0.030, 0.025, 0.020, 0.015, 0.010, 0.005}
-- cluster_membership: tab-delimited file (no header) with ALL clusters across the run:
+- cluster_membership: tab-delimited file (with header) with ALL clusters across the run:
                       ClusterID, MemberType (Query|Ref), MemberID
                       The script subsets to the current ClusterID parsed from filenames
 - best_hits_tsv:      TSV with columns: query, target, evalue, bits, alnlen, pident, qcov, tcov
@@ -61,10 +61,32 @@ def load_cluster_members(cluster_membership_fp: Path, cluster_id: str):
         return query_ids, ref_ids
     with open(cluster_membership_fp) as f:
         reader = csv.reader(f, delimiter="\t")
+        # Read header to get column names
+        header = next(reader, None)
+        if header is None:
+            logging.warning(f"Empty cluster membership file: {cluster_membership_fp}")
+            return query_ids, ref_ids
+        
+        # Map column names to indices
+        col_idx = {}
+        for i, col_name in enumerate(header):
+            col_idx[col_name.strip()] = i
+        
+        # Check required columns exist
+        required_cols = ['ClusterID', 'MemberType', 'MemberID']
+        for col in required_cols:
+            if col not in col_idx:
+                logging.error(f"Missing required column '{col}' in {cluster_membership_fp}")
+                return query_ids, ref_ids
+        
+        # Process data rows
         for row in reader:
-            if len(row) < 3:
+            if len(row) <= max(col_idx.values()):
                 continue
-            cid, mtype, mid = row[0], row[1], row[2]
+            cid = row[col_idx['ClusterID']]
+            mtype = row[col_idx['MemberType']]
+            mid = row[col_idx['MemberID']]
+            
             if cid != cluster_id:
                 continue
             if mtype.lower().startswith("q"):
@@ -100,7 +122,7 @@ def invert_membership(clusters):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--clusters-dir",       required=True, help="Directory with calc_distm_out/*.txt per threshold")
-    ap.add_argument("--cluster-membership", required=True, help="TSV (no header): ClusterID, MemberType(Query|Ref), MemberID")
+    ap.add_argument("--cluster-membership", required=True, help="TSV with header: ClusterID, MemberType(Query|Ref), MemberID")
     ap.add_argument("--best-hits",          required=True, help="Output of MMseqs convertalis with best hits (TSV without header: query,target,evalue,bits,alnlen,pident,qcov,tcov)")
     ap.add_argument("--centroid2sh",        required=True, help="centroid2sh_mappings.txt for mapping ref -> SH per threshold code 1..6")
     ap.add_argument("--output",             required=True, help="Output TSV path (single file)")
