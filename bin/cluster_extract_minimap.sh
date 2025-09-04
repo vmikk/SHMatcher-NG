@@ -13,6 +13,7 @@ set -euo pipefail
 #     --memory 100G                                      # memory limit
 
 ## TODO:
+# - Add clean-up flag to remove intermediate files (e.g., parquet files)
 # - Future optimizations:
 #   - Do not load all ref seqs into mem in `process_clusters.py`?
 #   - Remove final seq counts validation (it was used to validate FASTA output) - this can be done more efficiently with DuckDB
@@ -249,9 +250,10 @@ Input files:
   db_seqs.parquet         (columns: SeqID, Seq)
   query_seqs.parquet      (columns: SeqID, Seq)
 Output:
-  FASTA files split by cluster and reference type (parquet partitions):
-  - out_with_ref/clust_xxxx.fasta    (clusters containing Ref sequences)
-  - out_query_only/clust_xxxx.fasta  (clusters with only Query sequences)
+  FASTA files split by cluster and reference type:
+    - out_with_ref/clust_xxxx.fasta    (clusters containing Ref sequences)
+    - out_query_only/clust_xxxx.fasta  (clusters with only Query sequences)
+  Updated cluster_membership.txt with numeric cluster IDs (xxxx) replacing original ClusterID values
 """
 
 import duckdb
@@ -280,8 +282,8 @@ def setup_duckdb_connection(threads: Optional[int] = None, memory: Optional[str]
     
     return con
 
-def load_and_process_data(con: duckdb.DuckDBPyConnection) -> Dict:
-    """Load cluster membership and sequence data, returning processed clusters."""
+def load_and_process_data(con: duckdb.DuckDBPyConnection) -> Tuple[Dict, Dict[str, str]]:
+    """Load cluster membership and sequence data, returning processed clusters and ID mapping."""
     
     logger.info("Loading and processing cluster membership and sequence data")
     
@@ -342,14 +344,18 @@ def load_and_process_data(con: duckdb.DuckDBPyConnection) -> Dict:
             'sequence': row['Seq']
         })
     
-    # Generate cluster names with zero-padding
+    # Generate cluster names with zero-padding and create mapping
     cluster_count = len(cluster_data)
     pad_width = len(str(cluster_count))
     
-    # Create final clusters dict with proper naming
+    # Create mapping from original cluster ID to numeric cluster ID (for membership file)
+    cluster_id_mapping = {}
     clusters = {}
+    
     for i, (cluster_id, data) in enumerate(sorted(cluster_data.items()), 1):
-        cluster_name = f"clust_{i:0{pad_width}d}"
+        cluster_name = f"clust_{i:0{pad_width}d}"   # For FASTA filenames
+        cluster_numeric_id = f"{i:0{pad_width}d}"   # For cluster membership file
+        cluster_id_mapping[cluster_id] = cluster_numeric_id
         output_dir = "out_with_ref" if data['has_ref'] else "out_query_only"
         
         clusters[cluster_name] = {
@@ -360,7 +366,7 @@ def load_and_process_data(con: duckdb.DuckDBPyConnection) -> Dict:
         }
     
     logger.info(f"Organized data into {len(clusters)} clusters")
-    return clusters
+    return clusters, cluster_id_mapping
 
 def write_fasta_file(cluster_name: str, cluster_data: Dict, base_dir: str) -> Tuple[str, int]:
     """Write FASTA file for a single cluster with guaranteed ordering."""
@@ -423,6 +429,34 @@ def process_clusters_parallel(clusters: Dict, threads: int = 1) -> Dict[str, int
     
     return results
 
+def update_cluster_membership_file(cluster_id_mapping: Dict[str, str]) -> None:
+    """Update cluster_membership.txt with numeric cluster IDs."""
+    
+    logger.info("Updating cluster membership file with numeric cluster IDs")
+    
+    # Read the original file
+    updated_rows = []
+    with open('cluster_membership.txt', 'r') as f:
+        header = f.readline().strip()
+        updated_rows.append(header)
+        
+        for line in f:
+            parts = line.strip().split('\t')
+            if len(parts) == 3:
+                cluster_id, member_type, member_id = parts
+                # Replace with numeric cluster ID if available
+                new_cluster_id = cluster_id_mapping.get(cluster_id, cluster_id)
+                updated_rows.append(f"{new_cluster_id}\t{member_type}\t{member_id}")
+    
+    # Write the updated file
+    with open('cluster_membership_new.txt', 'w') as f:
+        f.write('\n'.join(updated_rows) + '\n')
+    
+    # Replace the original file with the updated one
+    os.replace('cluster_membership_new.txt', 'cluster_membership.txt')
+    
+    logger.info("Updated cluster membership file with numeric cluster IDs")
+
 def main():
     """Main function for cluster processing."""
     
@@ -444,7 +478,10 @@ def main():
         con = setup_duckdb_connection(threads, memory)
         
         # Load and process data
-        clusters = load_and_process_data(con)
+        clusters, cluster_id_mapping = load_and_process_data(con)
+        
+        # Update cluster membership file with numeric cluster IDs
+        update_cluster_membership_file(cluster_id_mapping)
         
         # Process clusters in parallel
         processing_threads = threads if threads else 1
