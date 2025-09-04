@@ -399,6 +399,25 @@ process aggregate_matches {
 }
 
 
+// Return common taxonomy
+process return_common_taxonomy {
+
+    publishDir 'Results_aggregated', mode: 'copy', overwrite: true
+
+    input:
+      path(matches)  // matches_out_all.csv
+
+    output:
+      path "matches_out_taxonomy.csv", emit: tax
+
+    script:
+    """
+    echo -e "Returning common taxonomy\\n"
+
+    return_common_taxonomy.py \
+      --input   ${matches} \
+      --output  matches_out_taxonomy.csv
+
     """
 }
 
@@ -548,5 +567,11 @@ workflow {
       )
   }
 
+  // Compute a single common taxonomy for each query
+  return_common_taxonomy(aggregate_matches.out.all)
+
+  // parse_matches_html
+
+  // shmatches2kronatext
 
 }
