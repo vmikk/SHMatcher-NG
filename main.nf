@@ -171,6 +171,9 @@ process mmseqs_search {
       --format-output "query,target,evalue,bits,alnlen,pident,qcov,tcov" \
       --threads ${task.cpus}
 
+    ## Add header
+    sed -i '1 i\\query\\ttarget\\tevalue\\tbits\\talnlen\\tpident\\tqcov\\ttcov' best_hits.tsv
+
     ## Clean up
     rm -r tmp_search
 
