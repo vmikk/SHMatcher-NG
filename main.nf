@@ -89,6 +89,8 @@ process prepare_cluster_keys {
 // (nucleotide-nucleotide, both strands)
 process mmseqs_search {
 
+    publishDir 'Results_mmseqs_search', pattern: "best_hits.tsv", mode: 'copy', overwrite: true
+
     input:
       path(q_db, stageAs: "q_db/*")  // database of query sequences (`q_db/q_db`)
       path(refs, stageAs: 'SH_db/*') // reference database (`SH_db/...`)
@@ -226,6 +228,7 @@ process cluster_extract_mmseqs {
 // Run minimap2 search
 process minimap2_search {
 
+    publishDir 'Results_minimap_search', mode: 'copy', overwrite: true
 
     input:
       path(input)              // input FASTA file
