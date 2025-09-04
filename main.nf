@@ -361,6 +361,7 @@ process cluster_aggd {
       --clusters-dir       calc_distm_out \
       --cluster-membership ${cluster_membership} \
       --best-hits          ${best_hits} \
+      --method             ${params.method} \
       --centroid2sh        ${db_centroid2sh} \
       --output             ${mxbase}_matches.tsv
 
@@ -395,6 +396,7 @@ process aggregate_matches {
     aggregate_matches.py \
       --matches-dirs   matches1 \
       --best-hits      ${best_hits} \
+      --method         ${params.method} \
       --shs-file       ${shs_out} \
       --sh2compound    ${sh2compound} \
       --compounds-file ${compounds_out} \
