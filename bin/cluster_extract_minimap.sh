@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+## Script to prepare per-cluster FASTAs (query and reference sequences) for the Minimap2 workflow
+
+## Usage:
+# cluster_extract_minimap.sh \
+#     --query_seqs input.fasta \                         # input query sequences (FASTA)
+#     --cluster_members query_cluster_membership.tsv \   # query - cluster membership (named TSV)
+#     --top_hits top_hits.tsv \                          # top N hits to the database (per query)
+#     --db_seqs sanger_refs_sh_full.fasta                # database with SH sequences (FASTA)
+#     --threads 8 \                                      # number of CPU threads
+#     --memory 100G                                      # memory limit
+
 ## TODO:
-# - replace custom FASTA writing tricks with `exon`?
-#   https://github.com/wheretrue/exon-duckdb
-#   Current problem is that DuckDB's partitioned COPY doesn't guarantee ordering within partitions
-#   which lead to errors in the FASTA format (e.g., sequence comes before header)
-#   --> for now added explicit ordering hierarchy:
+# - Future optimizations:
+#   - Do not load all ref seqs into mem in `process_clusters.py`?
+#   - Remove final seq counts validation (it was used to validate FASTA output) - this can be done more efficiently with DuckDB
+
 
 
 usage(){
