@@ -439,11 +439,6 @@ workflow {
   // Lin-cluster query sequences
   precluster(ch_inp)
 
-  // Cluster membership preparation
-  prepare_cluster_keys(
-    precluster.out.qdb,
-    precluster.out.membership)
-
 
 
   // Minimap2 search
@@ -462,6 +457,19 @@ workflow {
       db_sanger_sh_full              // database sequences (FASTA)
     )
 
+    // Clusters and compound clusters
+    ch_rrr = cluster_extract_minimap.out.clusters_with_ref.flatten()    // clusters with query and reference sequences
+    ch_qqq = cluster_extract_minimap.out.clusters_query_only.flatten()  // clusters with only query sequences
+    ch_cls = ch_rrr.mix(ch_qqq)
+
+    // We need to reuse shared channels in `cluster_aggd`
+    // -> make a single tuple
+    ch_meta = cluster_extract_minimap.out.ids
+            .combine(minimap2_search.out.best_hits)
+            .combine(db_centroid2sh)
+            .map { ids, best_hits, centroid2sh -> tuple(ids, best_hits, centroid2sh) }
+
+
   } // end of Minimap2 search
   
 
@@ -473,6 +481,11 @@ workflow {
     mmseqs_search(
       precluster.out.qdb,
       ch_ref)
+
+    // Cluster membership preparation (numeric keys)
+    prepare_cluster_keys(
+      precluster.out.qdb,
+      precluster.out.membership)
 
     // Prepare FASTA files for each (compound) cluster
     cluster_extract_mmseqs(
@@ -495,6 +508,11 @@ workflow {
             .map { ids, best_hits, centroid2sh -> tuple(ids, best_hits, centroid2sh) }
 
   } // end of MMseqs search
+
+
+
+  // Generate a distance matrix (for each cluster of sequences)
+  calc_distmx(ch_cls)
 
   ch_mx = calc_distmx.out.mx
     .combine(ch_meta)
