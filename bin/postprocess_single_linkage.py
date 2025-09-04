@@ -47,6 +47,7 @@ import logging
 import os
 from pathlib import Path
 import re
+from parse_best_hits import parse_best_hits
 
 
 # Threshold names
@@ -123,7 +124,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--clusters-dir",       required=True, help="Directory with calc_distm_out/*.txt per threshold")
     ap.add_argument("--cluster-membership", required=True, help="TSV with header: ClusterID, MemberType(Query|Ref), MemberID")
-    ap.add_argument("--best-hits",          required=True, help="Output of MMseqs convertalis with best hits (TSV without header: query,target,evalue,bits,alnlen,pident,qcov,tcov)")
+    ap.add_argument("--best-hits",          required=True, help="Best hits file (MMseqs convertalis or minimap2 output)")
+    ap.add_argument("--method",             required=True, choices=["mmseqs", "minimap"], help="Method used to generate best hits file")
     ap.add_argument("--centroid2sh",        required=True, help="centroid2sh_mappings.txt for mapping ref -> SH per threshold code 1..6")
     ap.add_argument("--output",             required=True, help="Output TSV path (single file)")
     ap.add_argument("--verbose", "-v",      action="store_true", help="Enable verbose logging")
@@ -167,47 +169,9 @@ def main():
     query_ids, ref_ids = load_cluster_members(Path(args.cluster_membership), cluster_id)
     logging.info(f"Found {len(query_ids)} queries and {len(ref_ids)} references in cluster {cluster_id}")
 
-    # best hits (select best per query by evalue asc, bits desc, pident desc)
-    def parse_best_hits(tsv_path: str):
-        with open(tsv_path) as f:
-            reader = csv.reader(f, delimiter="\t")
-            first = next(reader, None)
-            if first is None:
-                return {}, {}
-            # Detect header
-            columns = [c.strip().lower() for c in first]
-            has_header = "query" in columns and "target" in columns
-            if has_header:
-                col_idx = {name: i for i, name in enumerate(columns)}
-            else:
-                # Assume default MMseqs convertalis order
-                col_idx = {"query": 0, "target": 1, "evalue": 2, "bits": 3, "alnlen": 4, "pident": 5, "qcov": 6, "tcov": 7}
-            best = {}
-            if not has_header and first:
-                # Treat first as data row
-                rows_iter = [first]
-            else:
-                rows_iter = []
-            # Chain remaining rows
-            for row in rows_iter + list(reader):
-                try:
-                    qid = row[col_idx["query"]]
-                    tid = row[col_idx["target"]]
-                    evalue = float(row[col_idx.get("evalue", 2)])
-                    bits = float(row[col_idx.get("bits", 3)])
-                    pident = float(row[col_idx.get("pident", 5)])
-                except Exception:
-                    continue
-                prev = best.get(qid)
-                key = (evalue, -bits, -pident)
-                if prev is None or key < prev[0]:
-                    best[qid] = (key, tid, pident)
-            q2best_ref = {q: v[1] for q, v in best.items()}
-            q2pident = {q: v[2] for q, v in best.items()}
-            return q2best_ref, q2pident
-
+    # best hits (select best per query based on method)
     logging.info(f"Loading best hits from {args.best_hits}")
-    q2best, q2pident = parse_best_hits(args.best_hits)
+    q2best, q2pident = parse_best_hits(args.best_hits, args.method)
     logging.info(f"Loaded best hits for {len(q2best)} queries")
 
     # centroid2sh mappings: columns threshold_code(1..6) keyed later, for quick lookup per ref id

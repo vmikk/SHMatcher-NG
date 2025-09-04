@@ -70,6 +70,7 @@ Notes
 import argparse
 import csv
 from pathlib import Path
+from parse_best_hits import parse_best_hits
 
 
 THRESHOLDS = ["03", "025", "02", "015", "01", "005"]
@@ -117,7 +118,8 @@ def load_map_file(fp, key_idx, val_idx):
 def main():
     ap = argparse.ArgumentParser(description="Aggregate per-cluster matches into matches_out_all.csv compatible with return_common_taxonomy.py")
     ap.add_argument("--matches-dirs",   nargs="+",     help="Directories or files to search for matches (all .tsv files will be read)")
-    ap.add_argument("--best-hits",      required=True, help="Output of MMseqs convertalis (TSV without herader: query,target,evalue,bits,alnlen,pident,qcov,tcov)")
+    ap.add_argument("--best-hits",      required=True, help="Best hits file (MMseqs convertalis or minimap2 output)")
+    ap.add_argument("--method",         required=True, choices=["mmseqs", "minimap"], help="Method used to generate best hits file")
     ap.add_argument("--shs-file",       required=True, help="shs_out.txt (SH_code \t taxonomy)")
     ap.add_argument("--sh2compound",    required=True, help="sh2compound_mapping.txt (SH_code \t UCL_code)")
     ap.add_argument("--compounds-file", required=True, help="compounds_out.txt (.. \t UCL_code \t taxonomy)")
@@ -136,42 +138,8 @@ def main():
 
     per_th, all_queries = read_matches_aggregated(agg_files)
 
-    # Best hits mapping (parse MMseqs convertalis; pick best per query)
-    def parse_best_hits(tsv_path: str):
-        with open(tsv_path) as f:
-            reader = csv.reader(f, delimiter="\t")
-            first = next(reader, None)
-            if first is None:
-                return {}, {}
-            columns = [c.strip().lower() for c in first]
-            has_header = "query" in columns and "target" in columns
-            if has_header:
-                col_idx = {name: i for i, name in enumerate(columns)}
-            else:
-                col_idx = {"query": 0, "target": 1, "evalue": 2, "bits": 3, "alnlen": 4, "pident": 5, "qcov": 6, "tcov": 7}
-            best = {}
-            if not has_header and first:
-                rows_iter = [first]
-            else:
-                rows_iter = []
-            for row in rows_iter + list(reader):
-                try:
-                    qid = row[col_idx["query"]]
-                    tid = row[col_idx["target"]]
-                    evalue = float(row[col_idx.get("evalue", 2)])
-                    bits = float(row[col_idx.get("bits", 3)])
-                    pident = float(row[col_idx.get("pident", 5)])
-                except Exception:
-                    continue
-                prev = best.get(qid)
-                key = (evalue, -bits, -pident)
-                if prev is None or key < prev[0]:
-                    best[qid] = (key, tid, pident)
-            q2best_ref = {q: v[1] for q, v in best.items()}
-            q2pident = {q: v[2] for q, v in best.items()}
-            return q2best_ref, q2pident
-
-    q2best, q2pident = parse_best_hits(args.best_hits)
+    # Best hits mapping (parse best hits file based on method)
+    q2best, q2pident = parse_best_hits(args.best_hits, args.method)
 
     # Helper to extract SH code (e.g., SH0989441.10FU) from best-hit target id
     def extract_sh_code_from_target(target_id: str):
