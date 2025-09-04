@@ -252,6 +252,40 @@ process minmap2_search {
 }
 
 
+// Prepare FASTA files for each (compound) cluster based on minimap2 hits
+process cluster_extract_minmap {
+
+    publishDir 'Results_clusters', mode: 'copy', overwrite: true
+
+    input:
+      path(input)              // input FASTA file
+      path(members)            // cluster membership TSV (named)
+      path(hits)               // top N hits to the database (per query)
+      path(refs)               // database with SH sequences (FASTA)
+
+    output:
+      path "out_with_ref/*.fasta",   optional: true, emit: clusters_with_ref
+      path "out_query_only/*.fasta", optional: true, emit: clusters_query_only
+      path "cluster_membership.txt", emit: ids
+
+    script:
+    """
+    echo -e "Preparing FASTA files for each (compound) cluster\\n"
+
+    cluster_extract_minimap.sh \
+      --query_seqs      ${input} \
+      --cluster_members ${members} \
+      --top_hits        ${hits} \
+      --db_seqs         ${refs} \
+      --threads ${task.cpus}
+      # --memory ...
+
+    """
+}
+
+
+
+
 
 // Generate a distance matrix
 process calc_distmx {
