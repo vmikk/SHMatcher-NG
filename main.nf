@@ -240,12 +240,13 @@ process minimap2_search {
       path "best_hits.tsv", emit: best_hits
 
     script:
+    opts = params.minimap_opts ? "-x ${params.minimap_opts}" : ""
     """
     echo -e "Running minimap2 search\\n"
 
     minimap2 \
         -t ${task.cpus} \
-        -N ${params.minimap_n_candidates} --secondary=yes --cs \
+        -N ${params.minimap_n_candidates} --secondary=yes --cs ${opts} \
         ${mmi} \
         ${input} \
       | grep -v -e \$'\\ttp:A:I' -e \$'\\ttp:A:i' \
