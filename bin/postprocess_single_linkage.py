@@ -43,6 +43,7 @@ Usage:
 
 import argparse
 import csv
+import logging
 import os
 from pathlib import Path
 import re
@@ -56,6 +57,7 @@ def load_cluster_members(cluster_membership_fp: Path, cluster_id: str):
     query_ids = set()
     ref_ids = set()
     if not cluster_membership_fp.exists():
+        logging.warning(f"Cluster membership file not found: {cluster_membership_fp}")
         return query_ids, ref_ids
     with open(cluster_membership_fp) as f:
         reader = csv.reader(f, delimiter="\t")
@@ -102,25 +104,46 @@ def main():
     ap.add_argument("--best-hits",          required=True, help="Output of MMseqs convertalis with best hits (TSV without header: query,target,evalue,bits,alnlen,pident,qcov,tcov)")
     ap.add_argument("--centroid2sh",        required=True, help="centroid2sh_mappings.txt for mapping ref -> SH per threshold code 1..6")
     ap.add_argument("--output",             required=True, help="Output TSV path (single file)")
+    ap.add_argument("--verbose", "-v",      action="store_true", help="Enable verbose logging")
     args = ap.parse_args()
+
+    # Configure logging
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    logging.info("Starting postprocess_single_linkage.py")
+    logging.info(f"Clusters dir: {args.clusters_dir}")
+    logging.info(f"Output: {args.output}")
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Determine cluster ID from any threshold filename in the directory
+    logging.debug(f"Looking for clustering output files in {args.clusters_dir}")
     any_file = None
     for p in sorted(Path(args.clusters_dir).glob("*_out_*")):
         any_file = p
         break
     if any_file is None:
+        logging.error(f"No clustering output files found in {args.clusters_dir}")
         raise RuntimeError(f"No clustering output files found in {args.clusters_dir}")
+    
+    logging.debug(f"Using file {any_file.name} to extract cluster ID")
     m = re.search(r"mx_cluster_(.+?)_out_", any_file.stem)
     if not m:
+        logging.error(f"Cannot parse cluster ID from filename: {any_file.name}")
         raise RuntimeError(f"Cannot parse cluster ID from filename: {any_file.name}")
     cluster_id = m.group(1)
+    logging.info(f"Processing cluster ID: {cluster_id}")
 
     # Load query/ref members for this cluster
+    logging.info(f"Loading cluster membership from {args.cluster_membership}")
     query_ids, ref_ids = load_cluster_members(Path(args.cluster_membership), cluster_id)
+    logging.info(f"Found {len(query_ids)} queries and {len(ref_ids)} references in cluster {cluster_id}")
 
     # best hits (select best per query by evalue asc, bits desc, pident desc)
     def parse_best_hits(tsv_path: str):
@@ -161,12 +184,16 @@ def main():
             q2pident = {q: v[2] for q, v in best.items()}
             return q2best_ref, q2pident
 
+    logging.info(f"Loading best hits from {args.best_hits}")
     q2best, q2pident = parse_best_hits(args.best_hits)
+    logging.info(f"Loaded best hits for {len(q2best)} queries")
 
     # centroid2sh mappings: columns threshold_code(1..6) keyed later, for quick lookup per ref id
     # File format in old pipeline: fields[2] is ref id, fields[0] is SH code, fields[1] is threshold code
     # We'll build: map_by_th[th_code][ref_id] = SH_code
+    logging.info(f"Loading centroid2sh mappings from {args.centroid2sh}")
     map_by_th = {"1": {}, "2": {}, "3": {}, "4": {}, "5": {}, "6": {}}
+    total_mappings = 0
     with open(args.centroid2sh) as f:
         r = csv.reader(f, delimiter="\t")
         for row in r:
@@ -175,6 +202,11 @@ def main():
             sh_code, th_code, ref_id = row[0], row[1], row[2]
             if th_code in map_by_th:
                 map_by_th[th_code][ref_id] = sh_code
+                total_mappings += 1
+    
+    mappings_per_th = {th: len(refs) for th, refs in map_by_th.items()}
+    logging.info(f"Loaded {total_mappings} total centroid2sh mappings")
+    logging.debug(f"Mappings per threshold: {mappings_per_th}")
 
     # threshold -> coded mapping like in `parse_matches_sh.pl`
     # legacy keys (03, 025, ...) and new decimal keys (0.030, 0.025, ...)
@@ -188,15 +220,18 @@ def main():
     }
 
     # Write results (all thresholds are aggregated into a single file)
+    logging.info(f"Writing results to {out_path}")
     with open(out_path, "w") as o:
         w = csv.writer(o, delimiter="\t", lineterminator="\n")
         # Header
         w.writerow(["query", "best_ref", "status", "sh_code", "extra", "threshold"])
 
         for th in THRESHOLDS:
+            logging.info(f"Processing threshold {th}")
             th_code = th_to_code[th]
             # goclust produces files named like mx_*.txt_out_TH with lines: clusterId\tseqId
             files = sorted(Path(args.clusters_dir).glob(f"*_out_{th}"))
+            logging.debug(f"Found {len(files)} cluster files for threshold {th}")
             clusters = {}
             for f in files:
                 part = load_clusters(f)
@@ -205,6 +240,7 @@ def main():
                     key = f"{f.stem}_{cid}"
                     clusters[key] = members
             membership = invert_membership(clusters)
+            logging.debug(f"Loaded {len(clusters)} clusters for threshold {th}")
 
             for q in sorted(query_ids):
                 best_ref = q2best.get(q, "")
@@ -263,6 +299,8 @@ def main():
                         sh_code = map_by_th[th_code].get(pick, "")
 
                 w.writerow([q, best_ref, status, sh_code, extra, th])
+
+    logging.info(f"Processing complete. Results written to {out_path}")
 
 
 if __name__ == "__main__":
