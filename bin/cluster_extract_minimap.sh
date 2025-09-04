@@ -251,8 +251,8 @@ Input files:
   query_seqs.parquet      (columns: SeqID, Seq)
 Output:
   FASTA files split by cluster and reference type:
-    - out_with_ref/clust_xxxx.fasta    (clusters containing Ref sequences)
-    - out_query_only/clust_xxxx.fasta  (clusters with only Query sequences)
+    - out_with_ref/cluster_xxxx.fasta    (clusters containing Ref sequences)
+    - out_query_only/cluster_xxxx.fasta  (clusters with only Query sequences)
   Updated cluster_membership.txt with numeric cluster IDs (xxxx) replacing original ClusterID values
 """
 
@@ -353,7 +353,7 @@ def load_and_process_data(con: duckdb.DuckDBPyConnection) -> Tuple[Dict, Dict[st
     clusters = {}
     
     for i, (cluster_id, data) in enumerate(sorted(cluster_data.items()), 1):
-        cluster_name = f"clust_{i:0{pad_width}d}"   # For FASTA filenames
+        cluster_name = f"cluster_{i:0{pad_width}d}"   # For FASTA filenames
         cluster_numeric_id = f"{i:0{pad_width}d}"   # For cluster membership file
         cluster_id_mapping[cluster_id] = cluster_numeric_id
         output_dir = "out_with_ref" if data['has_ref'] else "out_query_only"
