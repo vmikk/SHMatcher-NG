@@ -211,8 +211,9 @@ process cluster_extract_mmseqs {
         --out-query-only out_query_only"
     
     ## Pool per-cluster member IDs  (table: ClusterID, MemberType (Query/Ref), MemberID
-    find out_with_ref   -name "*.ids.txt" | parallel -j1 "cat {}" >  cluster_membership.txt
-    find out_query_only -name "*.ids.txt" | parallel -j1 "cat {}" >> cluster_membership.txt
+    echo -e "ClusterID\tMemberType\tMemberID" > cluster_membership.txt
+    find out_with_ref   -name "*.ids.txt" | sort | parallel -j1 "cat {}" >> cluster_membership.txt
+    find out_query_only -name "*.ids.txt" | sort | parallel -j1 "cat {}" >> cluster_membership.txt
 
     ## Clean up
     find out_with_ref   -name "*.ids.txt" | parallel -j1 -X "rm {}"
