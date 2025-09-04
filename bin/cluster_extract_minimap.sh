@@ -228,301 +228,248 @@ duckdb -c "${DUCKDB_COMMAND}"
 
 echo -e "\n\nEnriching cluster_membership with sequences\n"
 
+echo "..Preparing Python script for cluster processing"
 
-SEQS_COMMAND=""
+# Create Python script for processing clusters with proper FASTA ordering
+cat > process_clusters.py << 'EOF'
+#!/usr/bin/env python3
+"""
+Process cluster membership and generate FASTA files
+Input files:
+  cluster_membership.txt  (TSV with columns: ClusterID, MemberType, MemberID)
+  db_seqs.parquet         (columns: SeqID, Seq)
+  query_seqs.parquet      (columns: SeqID, Seq)
+Output:
+  FASTA files split by cluster and reference type (parquet partitions):
+  - out_with_ref/clust_xxxx.fasta    (clusters containing Ref sequences)
+  - out_query_only/clust_xxxx.fasta  (clusters with only Query sequences)
+"""
 
-if [[ -n "$THREADS" ]]; then
-    SEQS_COMMAND+="
-SET threads TO ${THREADS};
-"
-fi
+import duckdb
+import os
+import sys
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Tuple, Optional
+import logging
 
-if [[ -n "$MEMORY" ]]; then
-    SEQS_COMMAND+="
-SET memory_limit = '${MEMORY}';
-"
-fi
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
+def setup_duckdb_connection(threads: Optional[int] = None, memory: Optional[str] = None) -> duckdb.DuckDBPyConnection:
+    """Create and configure DuckDB connection."""
+    con = duckdb.connect(':memory:')
+    
+    if threads:
+        con.execute(f"SET threads TO {threads}")
+        logger.info(f"Set DuckDB threads to {threads}")
+    
+    if memory:
+        con.execute(f"SET memory_limit = '{memory}'")
+        logger.info(f"Set DuckDB memory limit to {memory}")
+    
+    return con
 
-SEQS_COMMAND+="
--- Input files:
---   cluster_membership.txt  (TSV with columns: ClusterID, MemberType, MemberID)
---   db_seqs.parquet         (columns: SeqID, Seq)
---   query_seqs.parquet      (columns: SeqID, Seq)
--- Output:
---   FASTA files split by cluster and reference type (parquet partitions):
---   - out_with_ref/cluster_name=clust_xxxx/data_0.fasta    (clusters containing Ref sequences)
---   - out_query_only/cluster_name=clust_xxxx/data_0.fasta  (clusters with only Query sequences)
-
-COPY (
-  WITH
-  -- Read cluster membership data
-  cm AS (
-    SELECT
-      ClusterID,
-      MemberType,
-      MemberID
-    FROM read_csv('cluster_membership.txt', 
-      columns={'ClusterID': 'VARCHAR', 'MemberType': 'VARCHAR', 'MemberID': 'VARCHAR'},
-      delim='\t', 
-      header=true
+def load_and_process_data(con: duckdb.DuckDBPyConnection) -> Dict:
+    """Load cluster membership and sequence data, returning processed clusters."""
+    
+    logger.info("Loading and processing cluster membership and sequence data")
+    
+    # Join the core data
+    query = """
+    WITH
+    -- Read cluster membership data
+    cm AS (
+        SELECT ClusterID, MemberType, MemberID
+        FROM read_csv('cluster_membership.txt', 
+            columns={'ClusterID': 'VARCHAR', 'MemberType': 'VARCHAR', 'MemberID': 'VARCHAR'},
+            delim='\t', header=true
+        )
+    ),
+    
+    -- Combine sequence data from both sources with priority for query sequences
+    all_sequences AS (
+        SELECT SeqID, Seq, 0 AS priority FROM 'db_seqs.parquet'
+        UNION ALL
+        SELECT SeqID, Seq, 1 AS priority FROM 'query_seqs.parquet'
+    ),
+    
+    -- Resolve duplicates by SeqID (prefer query sequences with higher priority)
+    seq_map AS (
+        SELECT SeqID, arg_max(Seq, priority) AS Seq
+        FROM all_sequences
+        GROUP BY SeqID
     )
-  ),
-
-  -- Combine sequence data from both sources with priority for query sequences
-  all_sequences AS (
-    SELECT SeqID, Seq, 0 AS priority FROM 'db_seqs.parquet'
-    UNION ALL
-    SELECT SeqID, Seq, 1 AS priority FROM 'query_seqs.parquet'
-  ),
-
-  -- Resolve duplicates by SeqID (prefer query sequences with higher priority)
-  seq_map AS (
-    SELECT
-      SeqID,
-      arg_max(Seq, priority) AS Seq
-    FROM all_sequences
-    GROUP BY SeqID
-  ),
-
-  -- Join cluster membership with sequences
-  members_with_seqs AS (
-    SELECT 
-      cm.ClusterID,
-      cm.MemberType,
-      cm.MemberID,
-      sm.Seq
+    
+    -- Join cluster membership with sequences
+    SELECT cm.ClusterID, cm.MemberType, cm.MemberID, sm.Seq
     FROM cm
     INNER JOIN seq_map sm ON sm.SeqID = cm.MemberID
-  ),
-
-  -- Determine cluster type (has_ref: true if cluster contains Ref sequences)
-  cluster_types AS (
-    SELECT 
-      ClusterID,
-      bool_or(MemberType = 'Ref') AS has_ref
-    FROM members_with_seqs
-    GROUP BY ClusterID
-  ),
-
-  -- Create dense numeric cluster indices with zero-padding
-  cluster_numbering AS (
-    SELECT
-      ClusterID,
-      has_ref,
-      ROW_NUMBER() OVER (ORDER BY ClusterID) AS cluster_no
-    FROM cluster_types
-  ),
-  padding_params AS (
-    SELECT LENGTH(CAST(MAX(cluster_no) AS VARCHAR)) AS pad_width
-    FROM cluster_numbering
-  ),
-
-  -- Generate cluster directory names and output paths
-  enriched_members AS (
-    SELECT
-      m.ClusterID,
-      m.MemberType,
-      m.MemberID,
-      m.Seq,
-      cn.has_ref,
-      'clust_' || lpad(CAST(cn.cluster_no AS VARCHAR), CAST(pp.pad_width AS INTEGER), '0') AS cluster_name,
-      CASE 
-        WHEN cn.has_ref THEN 'out_with_ref'
-        ELSE 'out_query_only'
-      END AS output_dir
-    FROM members_with_seqs m
-    JOIN cluster_numbering cn USING (ClusterID)
-    CROSS JOIN padding_params pp
-  ),
-
-  -- Generate FASTA format lines for clusters WITH references
-  -- Use explicit ordering to ensure header comes before sequence
-  fasta_lines_with_ref AS (
-    SELECT 
-      cluster_name,
-      MemberID,
-      member_order,
-      line_type,
-      ROW_NUMBER() OVER (
-        PARTITION BY cluster_name 
-        ORDER BY member_order, line_type
-      ) AS global_line_order,
-      CASE 
-        WHEN line_type = 0 THEN '>' || MemberID
-        WHEN line_type = 1 THEN Seq
-      END AS line_content
-    FROM (
-      SELECT 
-        cluster_name,
-        MemberID,
-        Seq,
-        ROW_NUMBER() OVER (
-          PARTITION BY cluster_name 
-          ORDER BY MemberID
-        ) AS member_order,
-        line_type
-      FROM enriched_members
-      CROSS JOIN (VALUES (0), (1)) AS t(line_type)
-      WHERE output_dir = 'out_with_ref'
-    ) ordered_members
-  )
-
-  -- First export: clusters with references
-  SELECT cluster_name, line_content
-  FROM fasta_lines_with_ref
-  ORDER BY cluster_name, global_line_order
-)
-TO 'out_with_ref' (
-  FORMAT CSV,
-  HEADER false,
-  PARTITION_BY cluster_name,
-  FILE_EXTENSION 'fasta'
-);
-
--- Second export: query-only clusters
-COPY (
-  WITH
-  -- Re-use the same CTEs as above (need to repeat them for second COPY)
-  cm AS (
-    SELECT ClusterID, MemberType, MemberID
-    FROM read_csv('cluster_membership.txt', 
-      columns={'ClusterID': 'VARCHAR', 'MemberType': 'VARCHAR', 'MemberID': 'VARCHAR'},
-      delim='\t', header=true
-    )
-  ),
-  all_sequences AS (
-    SELECT SeqID, Seq, 0 AS priority FROM 'db_seqs.parquet'
-    UNION ALL
-    SELECT SeqID, Seq, 1 AS priority FROM 'query_seqs.parquet'
-  ),
-  seq_map AS (
-    SELECT SeqID, arg_max(Seq, priority) AS Seq
-    FROM all_sequences GROUP BY SeqID
-  ),
-  members_with_seqs AS (
-    SELECT cm.ClusterID, cm.MemberType, cm.MemberID, sm.Seq
-    FROM cm INNER JOIN seq_map sm ON sm.SeqID = cm.MemberID
-  ),
-  cluster_types AS (
-    SELECT ClusterID, bool_or(MemberType = 'Ref') AS has_ref
-    FROM members_with_seqs GROUP BY ClusterID
-  ),
-  cluster_numbering AS (
-    SELECT ClusterID, has_ref, ROW_NUMBER() OVER (ORDER BY ClusterID) AS cluster_no
-    FROM cluster_types
-  ),
-  padding_params AS (
-    SELECT LENGTH(CAST(MAX(cluster_no) AS VARCHAR)) AS pad_width
-    FROM cluster_numbering
-  ),
-  enriched_members AS (
-    SELECT m.ClusterID, m.MemberType, m.MemberID, m.Seq, cn.has_ref,
-           'clust_' || lpad(CAST(cn.cluster_no AS VARCHAR), CAST(pp.pad_width AS INTEGER), '0') AS cluster_name,
-           CASE WHEN cn.has_ref THEN 'out_with_ref' ELSE 'out_query_only' END AS output_dir
-    FROM members_with_seqs m
-    JOIN cluster_numbering cn USING (ClusterID)
-    CROSS JOIN padding_params pp
-  ),
-  fasta_lines_query_only AS (
-    SELECT 
-      cluster_name,
-      MemberID,
-      member_order,
-      line_type,
-      ROW_NUMBER() OVER (
-        PARTITION BY cluster_name 
-        ORDER BY member_order, line_type
-      ) AS global_line_order,
-      CASE 
-        WHEN line_type = 0 THEN '>' || MemberID
-        WHEN line_type = 1 THEN Seq
-      END AS line_content
-    FROM (
-      SELECT 
-        cluster_name,
-        MemberID,
-        Seq,
-        ROW_NUMBER() OVER (
-          PARTITION BY cluster_name 
-          ORDER BY MemberID
-        ) AS member_order,
-        line_type
-      FROM enriched_members
-      CROSS JOIN (VALUES (0), (1)) AS t(line_type)
-      WHERE output_dir = 'out_query_only'
-    ) ordered_members
-  )
-  
-  SELECT cluster_name, line_content
-  FROM fasta_lines_query_only
-  ORDER BY cluster_name, global_line_order
-)
-TO 'out_query_only' (
-  FORMAT CSV,
-  HEADER false,
-  PARTITION_BY cluster_name,
-  FILE_EXTENSION 'fasta'
-);
-"
-
-## Execute the command
-echo -e "..Executing DuckDB command\n"
-duckdb -c "${SEQS_COMMAND}"
-
-
-echo -e "..Checking for multiple files per partition\n"
-
-## Check for any data_1.fasta, data_2.fasta files
-multi_files_with_ref=$(find out_with_ref -name "data_[1-9]*.fasta" 2>/dev/null | wc -l)
-multi_files_query_only=$(find out_query_only -name "data_[1-9]*.fasta" 2>/dev/null | wc -l)
-
-if [ "$multi_files_with_ref" -gt 0 ] || [ "$multi_files_query_only" -gt 0 ]; then
-    echo "WARNING: Found multiple files per partition:"
-    echo "  out_with_ref: $multi_files_with_ref extra files"
-    echo "  out_query_only: $multi_files_query_only extra files"
-    echo "  This indicates DuckDB created multiple files per partition."
+    ORDER BY cm.ClusterID, cm.MemberID
+    """
     
-    echo -e "\nExtra files found:"
-    find out_with_ref out_query_only -name "data_[1-9]*.fasta" 2>/dev/null | head -10
+    # Execute query and get results as DataFrame
+    result_df = con.execute(query).fetchdf()
+    logger.info(f"Loaded {len(result_df)} sequence records")
     
-    echo -e "\nMerging multiple files per partition..."
+    # Group by cluster and determine cluster properties
+    cluster_data = {}
+    for _, row in result_df.iterrows():
+        cluster_id = row['ClusterID']
+        if cluster_id not in cluster_data:
+            cluster_data[cluster_id] = {
+                'members': [],
+                'has_ref': False
+            }
+        
+        # Check if this cluster has reference sequences
+        if row['MemberType'] == 'Ref':
+            cluster_data[cluster_id]['has_ref'] = True
+            
+        cluster_data[cluster_id]['members'].append({
+            'member_id': row['MemberID'],
+            'member_type': row['MemberType'],
+            'sequence': row['Seq']
+        })
     
-    ## Merge multiple files in the same partition directory
-    for dir in $(find out_with_ref out_query_only -type d -name "cluster_name=*" 2>/dev/null); do
-        if [ $(find "$dir" -name "data_*.fasta" | wc -l) -gt 1 ]; then
-            echo "Merging files in: $dir"
-            cat "$dir"/data_*.fasta > "$dir"/merged.fasta
-            rm "$dir"/data_*.fasta
-            mv "$dir"/merged.fasta "$dir"/data_0.fasta
-        fi
-    done
-else
-    echo "Single file per partition confirmed (data_0.fasta only)"
-fi
-
-
-## Rename FASTA files and put them under out_with_ref/ OR out_query_only/
-echo -e "\n..Moving FASTA files to final structure\n"
-
-find out_with_ref -name "*.fasta" \
-  | parallel -j1 \
-    --rpl '{N} s:cluster_name=:: ; s:/data_0::' \
-    "mv {} {N}"
+    # Generate cluster names with zero-padding
+    cluster_count = len(cluster_data)
+    pad_width = len(str(cluster_count))
     
-find out_query_only -name "*.fasta" \
-  | parallel -j1 \
-    --rpl '{N} s:cluster_name=:: ; s:/data_0::' \
-    "mv {} {N}"
+    # Create final clusters dict with proper naming
+    clusters = {}
+    for i, (cluster_id, data) in enumerate(sorted(cluster_data.items()), 1):
+        cluster_name = f"clust_{i:0{pad_width}d}"
+        output_dir = "out_with_ref" if data['has_ref'] else "out_query_only"
+        
+        clusters[cluster_name] = {
+            'cluster_id': cluster_id,
+            'has_ref': data['has_ref'],
+            'output_dir': output_dir,
+            'members': data['members']
+        }
+    
+    logger.info(f"Organized data into {len(clusters)} clusters")
+    return clusters
 
-## Remove empty directories
-find out_with_ref out_query_only -type d -empty -delete
+def write_fasta_file(cluster_name: str, cluster_data: Dict, base_dir: str) -> Tuple[str, int]:
+    """Write FASTA file for a single cluster with guaranteed ordering."""
+    
+    output_dir = Path(base_dir) / cluster_data['output_dir']
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    fasta_file = output_dir / f"{cluster_name}.fasta"
+    
+    # Sort members by MemberID for consistent ordering
+    members = sorted(cluster_data['members'], key=lambda x: x['member_id'])
+    
+    sequence_count = 0
+    with open(fasta_file, 'w') as f:
+        for member in members:
+            # Write header line
+            f.write(f">{member['member_id']}\n")
+            # Write sequence line
+            f.write(f"{member['sequence']}\n")
+            sequence_count += 1
+    
+    return str(fasta_file), sequence_count
+
+def process_clusters_parallel(clusters: Dict, threads: int = 1) -> Dict[str, int]:
+    """Process all clusters in parallel using ThreadPoolExecutor."""
+    
+    logger.info(f"Processing {len(clusters)} clusters using {threads} threads")
+    
+    # Create output directories
+    Path("out_with_ref").mkdir(exist_ok=True)
+    Path("out_query_only").mkdir(exist_ok=True)
+    
+    results = {'files_created': 0, 'sequences_written': 0, 'with_ref': 0, 'query_only': 0}
+    
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        # Submit all cluster processing tasks
+        future_to_cluster = {
+            executor.submit(write_fasta_file, cluster_name, cluster_data, "."): cluster_name
+            for cluster_name, cluster_data in clusters.items()
+        }
+        
+        # Collect results
+        for future in as_completed(future_to_cluster):
+            cluster_name = future_to_cluster[future]
+            try:
+                fasta_file, seq_count = future.result()
+                results['files_created'] += 1
+                results['sequences_written'] += seq_count
+                
+                if 'out_with_ref' in fasta_file:
+                    results['with_ref'] += 1
+                else:
+                    results['query_only'] += 1
+                    
+                logger.debug(f"Created {fasta_file} with {seq_count} sequences")
+                
+            except Exception as e:
+                logger.error(f"Error processing cluster {cluster_name}: {e}")
+                raise
+    
+    return results
+
+def main():
+    """Main function for cluster processing."""
+    
+    # Parse command line arguments (threads, memory)
+    threads = None
+    memory = None
+    
+    if len(sys.argv) > 1 and sys.argv[1].strip():
+        try:
+            threads = int(sys.argv[1])
+        except ValueError:
+            logger.warning(f"Invalid threads value '{sys.argv[1]}', using default")
+            
+    if len(sys.argv) > 2 and sys.argv[2].strip():
+        memory = sys.argv[2]
+    
+    try:
+        # Setup DuckDB connection
+        con = setup_duckdb_connection(threads, memory)
+        
+        # Load and process data
+        clusters = load_and_process_data(con)
+        
+        # Process clusters in parallel
+        processing_threads = threads if threads else 1
+        results = process_clusters_parallel(clusters, processing_threads)
+        
+        # Report results
+        logger.info("="*50)
+        logger.info("FASTA generation complete")
+        logger.info(f"Files created: {results['files_created']}")
+        logger.info(f"Sequences written: {results['sequences_written']}")
+        logger.info(f"Clusters with references: {results['with_ref']}")
+        logger.info(f"Query-only clusters: {results['query_only']}")
+        logger.info("="*50)
+        
+        # Close connection
+        con.close()
+        
+    except Exception as e:
+        logger.error(f"Error in main processing: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
+EOF
+
+## Execute the Python script
+echo "..Executing Python cluster processing script"
+python process_clusters.py "${THREADS:-}" "${MEMORY:-}"
+
+## Clean up temporary Python script
+rm -f process_clusters.py
 
 
-## Final summary
-echo -e "\n=== FASTA generation complete ==="
-
-echo "Validating counts"
+echo -e "\n\nValidating sequence counts"
 
 ## Input seqs
 seq_count_in=$(rg -c "^>" "$QUERY_SEQS" 2>/dev/null || echo "0")
