@@ -449,6 +449,14 @@ workflow {
       ch_inp,
       ch_ref)
     
+    // Prepare FASTA files for each (compound) cluster
+    cluster_extract_minmap(
+      ch_inp,                        // input sequences (FASTA)
+      precluster.out.membership,     // query - cluster membership (named)
+      minmap2_search.out.top_hits,   // top N hits to the database (per query)
+      db_sanger_sh_full              // database sequences (FASTA)
+    )
+
   } // end of Minimap2 search
   
 
