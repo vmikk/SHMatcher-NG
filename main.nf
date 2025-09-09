@@ -102,7 +102,7 @@ process mmseqs_search {
       path "best_hits.tsv", emit: best_hits  // best hit per query (for identity calculation)
 
     script:
-    exact_kmer = params.exact_kmer ? "--exact-kmer-matching" : ""
+    exact_kmer = params.exact_kmer ? "--exact-kmer-matching 1" : "--exact-kmer-matching 0"
     """
     echo -e "..MMseqs global search\\n"
 
