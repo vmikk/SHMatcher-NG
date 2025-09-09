@@ -95,7 +95,7 @@ nextflow run vmikk/SHMatcher-NG -r main \
 | cov_mode             | Coverage calculation mode                            | MMseqs2     |
 | max_seqs             | Max sequences kept per query in prefilter            | MMseqs2     |
 | max_accept           | Max accepted alignments before stop                  | MMseqs2     |
-| exact_kmer           | Use exact k-mer matching                             | MMseqs2     |
+| exact_kmer           | Use exact k-mer matching (true / false)              | MMseqs2     |
 | spaced_kmer          | Spaced k-mer mode; must match DB index               | MMseqs2     |
 | kmer_length          | k-mer length                                         |             |
 | top_hits             | Top N hits per query to retain                       |             |
