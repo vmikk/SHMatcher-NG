@@ -77,6 +77,9 @@ THRESHOLDS = ["03", "025", "02", "015", "01", "005"]
 THRESHOLDS_DEC = ["0.030", "0.025", "0.020", "0.015", "0.010", "0.005"]
 TH_ALIAS = {"03": "0.030", "025": "0.025", "02": "0.020", "015": "0.015", "01": "0.010", "005": "0.005"}
 
+# Human-friendly labels used in headers and synthetic code strings
+TH_LABEL = {"03": "3.0", "025": "2.5", "02": "2.0", "015": "1.5", "01": "1.0", "005": "0.5"}
+
 
 def read_matches_aggregated(files):
     # Input = a single `matches.tsv` with header [query, best_ref, status, sh_code, extra, threshold]
@@ -161,6 +164,29 @@ def main():
             if len(row) >= 3:
                 ucl2tax[row[1]] = row[2]
 
+    # De novo SH code registries (per-threshold)
+    # - new cluster (multi-query):  dnSH-TH-C{n}
+    # - singleton:                  dnSH-TH-S{n}
+    dn_cluster_map = {th: {} for th in THRESHOLDS}
+    dn_single_map = {th: {} for th in THRESHOLDS}
+    dn_cluster_count = {th: 0 for th in THRESHOLDS}
+    dn_single_count = {th: 0 for th in THRESHOLDS}
+
+    def assign_dn_cluster_code(th: str, members_signature: str) -> str:
+        # Normalize threshold label (e.g., 03 -> 3.0)
+        label = TH_LABEL.get(th, th)
+        if members_signature not in dn_cluster_map[th]:
+            dn_cluster_count[th] += 1
+            dn_cluster_map[th][members_signature] = f"dnSH-{label}-C{dn_cluster_count[th]}"
+        return dn_cluster_map[th][members_signature]
+
+    def assign_dn_single_code(th: str, query_id: str) -> str:
+        label = TH_LABEL.get(th, th)
+        if query_id not in dn_single_map[th]:
+            dn_single_count[th] += 1
+            dn_single_map[th][query_id] = f"dnSH-{label}-S{dn_single_count[th]}"
+        return dn_single_map[th][query_id]
+
     with open(args.out, "w") as o:
         # Header mirrors merge_matches.py final header
         header = [
@@ -209,6 +235,13 @@ def main():
                             compound_tax = ucl2tax.get(compound_ucl, "")
                     elif status_raw == "new cluster":
                         status = "new_sh_in"
+                        # Assign de novo SH code shared by all members of the cluster
+                        extra = m[4] if len(m) > 4 else ""
+                        # Normalize signature: sorted, space-joined members
+                        members = [x for x in extra.split(" ") if x]
+                        members.sort()
+                        signature = " ".join(members) if members else q
+                        sh_code = assign_dn_cluster_code(th, signature)
                         if sh_maybe:
                             # Input may contain either SH or UCL; convert to UCL and taxonomy
                             if sh_maybe.startswith("UCL"):
@@ -221,6 +254,8 @@ def main():
                                 compound_tax = tax
                     elif status_raw == "singleton":
                         status = "new_singleton_in"
+                        # Assign de novo SH code for this singleton
+                        sh_code = assign_dn_single_code(th, q)
                         if sh_maybe:
                             if sh_maybe.startswith("UCL"):
                                 ucl = sh_maybe
