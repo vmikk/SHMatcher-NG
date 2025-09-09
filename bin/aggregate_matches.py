@@ -1,45 +1,7 @@
 #!/usr/bin/env python
 """
 Aggregate per-cluster matches into a single `matches_out_all.csv` file
-that is suitable for downstream taxonomy consensus (`return_common_taxonomy.py`).
-
-Comments:
-- In the "legacy" workflow, `analyse_usearch_output_sh.py` produced per-threshold
-  matches files (status per query and threshold) and `merge_matches.py` merged
-  these into a single wide table, adding SH/compound taxonomy and best-hit info.
-- This script reproduces that logic in one step:
-  - Reads all per-cluster/per-threshold TSVs under the provided directories
-    (we recursively read all `*.tsv` files from `--matches-dirs`).
-  - Normalizes threshold keys and aggregates rows per query for all thresholds
-    3.0/2.5/2.0/1.5/1.0/0.5 (% dissimilarity -> legacy keys 03/025/02/015/01/005).
-  - Populates SH code and taxonomy, as well as compound (UCL) taxonomy, following
-    the same rules as the original pipeline.
-
-Status semantics (from per-threshold inputs)
-- present     -> the query clusters with its best reference (or with any ref
-                 mapping to the same SH) at the given threshold.
-- new cluster -> the query forms a new cluster (multiple queries, no refs).
-- singleton   -> the query is alone (no refs, size 1 cluster).
-
-How SH and compound taxonomy are filled
-- present:
-  - Use the explicit SH code if provided in the per-threshold input.
-  - If missing, derive the SH code from the best-hit `target` identifier by
-    extracting the `SHxxxxxx.10FU` suffix (e.g. from `i12345i_SH0989441.10FU`).
-  - Look up SH taxonomy from `shs_out.txt`.
-  - Derive compound (UCL) via `sh2compound_mapping.txt` and its taxonomy from
-    `compounds_out.txt` (first available threshold sets the compound columns).
-- new cluster / singleton:
-  - The per-threshold input may contain either an SH code or a UCL code.
-  - If SH code is given, map SH -> UCL via `sh2compound_mapping.txt`.
-  - Fill taxonomy from `compounds_out.txt` using the resolved UCL.
-
-Output columns
-- seq_id_tmp, seq_accno
-- For each threshold (3.0, 2.5, 2.0, 1.5, 1.0, 0.5):
-  - status, SH code, SH/compound taxonomy
-- compound_cl_code (0.5), Compound taxonomy (0.5)
-- Matched sequence (best-hit target id), Similarity percentage (best-hit pident)
+that is suitable for downstream taxonomy consensus (`return_common_taxonomy.py`)
 
 Usage
   aggregate_matches.py \
@@ -59,12 +21,61 @@ Inputs required from the SH database:
 - sh2compound_mapping.txt:      SH_code -> compound (UCL) code
 - compounds_out.txt:            UCL code -> compound taxonomy
 
+Output columns
+- seq_id_tmp, seq_accno
+- For each threshold (3.0, 2.5, 2.0, 1.5, 1.0, 0.5):
+  - status, SH code, SH/compound taxonomy
+- compound_cl_code (0.5), Compound taxonomy (0.5)
+- Matched sequence (best-hit target id), Similarity percentage (best-hit pident)
+
 Notes
 - We recursively read all `*.tsv` files under each `--matches-dirs` path and
-  assume there are no unrelated TSVs present.
+  assume there are no unrelated TSVs present
 - If the inputs contain decimal thresholds (e.g. 0.030), they are normalized to
-  legacy keys (03, 025, 02, 015, 01, 005).
-- If no TSV inputs are found, the script writes only the header line.
+  legacy keys (03, 025, 02, 015, 01, 005)
+- If no TSV inputs are found, the script writes only the header line
+
+
+Comments:
+- In the "legacy" workflow, `analyse_usearch_output_sh.py` produced per-threshold
+  matches files (status per query and threshold) and `merge_matches.py` merged
+  these into a single wide table, adding SH/compound taxonomy and best-hit info.
+- This script reproduces that logic in one step:
+  - Reads all per-cluster/per-threshold TSVs under the provided directories
+    (we recursively read all `*.tsv` files from `--matches-dirs`)
+  - Normalizes threshold keys and aggregates rows per query for all thresholds
+    3.0/2.5/2.0/1.5/1.0/0.5 (% dissimilarity -> legacy keys 03/025/02/015/01/005)
+  - Populates SH code and taxonomy, as well as compound (UCL) taxonomy, following
+    the same rules as the original pipeline
+
+Status semantics (from per-threshold inputs)
+- present     -> the query clusters with its best reference (or with any ref
+                 mapping to the same SH) at the given threshold
+- new cluster -> the query forms a new cluster (multiple queries, no refs)
+- singleton   -> the query is alone (no refs, size 1 cluster)
+
+How SH and compound taxonomy are filled
+- present:
+  - Use the explicit SH code if provided in the per-threshold input.
+  - If missing, derive the SH code from the best-hit `target` identifier by
+    extracting the `SHxxxxxx.10FU` suffix (e.g. from `i12345i_SH0989441.10FU`)
+  - Look up SH taxonomy from `shs_out.txt`.
+  - Derive compound (UCL) via `sh2compound_mapping.txt` and its taxonomy from
+    `compounds_out.txt` (first available threshold sets the compound columns)
+- new cluster / singleton:
+  - The per-threshold input may contain either an SH code or a UCL code
+  - If SH code is given, map SH -> UCL via `sh2compound_mapping.txt`
+  - Fill taxonomy from `compounds_out.txt` using the resolved UCL
+
+De novo SH naming
+- Original pipeline: singletons were labeled sequentially as "s1", "s2", ... in `parse_matches_sh.pl`
+- Current: this script adds threshold label to the de novo SH code (in "SH code (<TH>)" columns):
+  - New clusters (multiple queries, no refs): `dnSH-<TH>-C{n}` (e.g., `dnSH-3.0-C1`)
+  - Singletons (single query, no refs):       `dnSH-<TH>-S{n}` (e.g., `dnSH-3.0-S1`)
+  `<TH>` is the dissimilarity threshold label in {3.0, 2.5, 2.0, 1.5, 1.0, 0.5}
+  Counters `{n}` are per-threshold. For new clusters, all member queries at a given
+  threshold share the same code based on a normalized membership signature (sorted member IDs)
+
 """
 
 import argparse
